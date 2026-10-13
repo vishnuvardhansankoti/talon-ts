@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmitOnError": true
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/agent-core" },
+    { "path": "../../packages/agent-tools" },
+    { "path": "../../packages/agent-providers" },
+    { "path": "../../packages/grpc-contracts" }
+  ]
+}

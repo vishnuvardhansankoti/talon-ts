@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package talon;
+
+// Phase 1: a single bidirectional-streaming RPC per session. This is a
+// network-shaped implementation of agent-core's Channel abstraction
+// (packages/agent-core/src/channel/channel.ts) — not a new protocol
+// concept. ApprovalRequest/ApprovalDecision are correlated by call_id.
+service TalonDaemon {
+  rpc StreamSession(stream ClientMessage) returns (stream ServerMessage);
+  rpc CheckHealth(HealthRequest) returns (HealthResponse);
+}
+
+message ClientMessage {
+  oneof payload {
+    ChannelInput channel_input = 1;
+    ApprovalDecision approval_decision = 2;
+  }
+}
+
+message ServerMessage {
+  oneof payload {
+    ChannelOutput channel_output = 1;
+    AgentEvent agent_event = 2;
+    ApprovalRequest approval_request = 3;
+  }
+}
+
+message ChannelInput {
+  string text = 1;
+}
+
+message ChannelOutput {
+  string text = 1;
+  bool is_final = 2;
+}
+
+message ApprovalRequest {
+  string call_id = 1;
+  string tool_id = 2;
+  string safety_tier = 3; // "safeReadOnly" | "heuristicSandboxed" | "dangerousConfirmRequired"
+  string input_json = 4;  // proposed tool input, echoed for the CLI confirmation prompt
+}
+
+message ApprovalDecision {
+  string call_id = 1;
+  string decision = 2; // "approved" | "denied" | "timedOut"
+}
+
+// Mirrors packages/agent-core/src/events/agent-event.ts's AgentEvent union.
+message AgentEvent {
+  oneof kind {
+    StateTransitioned state_transitioned = 1;
+    ToolCallProposed tool_call_proposed = 2;
+    ToolCallDelta tool_call_delta = 3;
+    VerificationResult verification_result = 4;
+  }
+}
+
+message StateTransitioned {
+  string from = 1;
+  string to = 2;
+}
+
+message ToolCallProposed {
+  string call_id = 1;
+  string tool_id = 2;
+  string input_json = 3;
+}
+
+message ToolCallDelta {
+  string partial_json = 1;
+}
+
+message VerificationResult {
+  bool passed = 1;
+  string reason = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1; // "ready" | "providerUnavailable"
+}

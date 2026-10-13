@@ -1,0 +1,22 @@
+{
+  "name": "@talon/talond",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "talond": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "bundle": "node scripts/bundle.mjs",
+    "package": "pnpm run bundle && pnpm exec pkg pkg-build/bundle.cjs --target node22-macos-arm64 --output pkg-build/talond"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.12.4",
+    "@talon/agent-core": "workspace:*",
+    "@talon/agent-providers": "workspace:*",
+    "@talon/agent-tools": "workspace:*",
+    "@talon/grpc-contracts": "workspace:*"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@talon/grpc-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/generated/index.d.ts",
+      "default": "./dist/generated/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "rm -rf src/generated && mkdir -p src/generated && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./src/generated --ts_proto_opt=outputServices=grpc-js,esModuleInterop=true,outputIndex=true,importSuffix=.js -I ../../proto ../../proto/talon/daemon.proto",
+    "build": "pnpm run generate && tsc -b"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.3",
+    "@grpc/grpc-js": "^1.12.4"
+  },
+  "devDependencies": {
+    "ts-proto": "^2.3.0"
+  }
+}

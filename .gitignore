@@ -10,3 +10,4 @@ pkg-out/
 pkg-build/
 .talon/
 .env
+.expo/

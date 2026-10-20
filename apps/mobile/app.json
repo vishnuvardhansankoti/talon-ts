@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Talon",
+    "slug": "talon-mobile",
+    "scheme": "talon",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.talon.mobile",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.talon.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

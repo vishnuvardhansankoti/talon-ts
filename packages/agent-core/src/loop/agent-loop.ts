@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Channel, ChannelInput } from "../channel/channel.js";
 import { ContextBuilder } from "../context/context-builder.js";
 import type { AgentEvent } from "../events/agent-event.js";
@@ -102,7 +101,7 @@ export class AgentLoop {
 
   constructor(private readonly deps: AgentLoopDeps) {
     this.budget = deps.budget ?? defaultLoopBudget;
-    this.sessionId = deps.sessionId ?? randomUUID();
+    this.sessionId = deps.sessionId ?? globalThis.crypto.randomUUID();
     this.context = new ContextBuilder(deps.systemPrompt ?? DEFAULT_SYSTEM_PROMPT);
   }
 

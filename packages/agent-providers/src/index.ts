@@ -13,3 +13,4 @@ export {
   type ToolSchema,
 } from "./contract/model-provider.js";
 export { OllamaProvider } from "./ollama/ollama-provider.js";
+export { GeminiProvider, geminiSafetySettings } from "./gemini/gemini-provider.js";

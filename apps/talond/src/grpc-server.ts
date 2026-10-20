@@ -1,7 +1,9 @@
 import type * as grpc from "@grpc/grpc-js";
 import { AgentLoop, type AgentEvent } from "@talon/agent-core";
-import { ApprovalGate, ToolRegistry, builtinTools } from "@talon/agent-tools";
+import { MemoryStore } from "@talon/agent-memory";
 import { OllamaProvider } from "@talon/agent-providers";
+import { SkillCatalog } from "@talon/agent-skills";
+import { ApprovalGate, ToolRegistry, builtinTools, watchToolsFromYaml, type ToolDefinition } from "@talon/agent-tools";
 import { talon } from "@talon/grpc-contracts";
 import { GrpcApprovalPrompter } from "./approval/grpc-approval-bridge.js";
 import { GrpcChannel } from "./channel/grpc-channel.js";
@@ -10,6 +12,15 @@ export interface TalondConfig {
   readonly model: string;
   readonly projectRoot: string;
   readonly ollamaBaseUrl?: URL;
+  readonly toolsConfigPath?: string;
+  readonly secretsPath?: string;
+}
+
+export interface TalonDaemonServerHandle {
+  readonly server: talon.TalonDaemonServer;
+  /** Closes every connection opened by a `kind: mcp` config entry and the
+   * `agent-memory` SQLite handle. Call once on shutdown. */
+  close(): Promise<void>;
 }
 
 function toServerMessage(event: AgentEvent): talon.ServerMessage {
@@ -34,14 +45,47 @@ function toServerMessage(event: AgentEvent): talon.ServerMessage {
       return talon.ServerMessage.fromPartial({
         agentEvent: { verificationResult: { passed: event.passed, reason: event.reason ?? "" } },
       });
+    case "SkillSynthesized":
+      return talon.ServerMessage.fromPartial({
+        agentEvent: {
+          skillSynthesized: { accepted: event.accepted, skillId: event.skillId ?? "", reason: event.reason },
+        },
+      });
   }
 }
 
-export function createTalonDaemonServer(config: TalondConfig): talon.TalonDaemonServer {
-  const toolRegistry = new ToolRegistry(builtinTools(config.projectRoot));
-  const modelProvider = new OllamaProvider(config.model, config.ollamaBaseUrl);
+export async function createTalonDaemonServer(config: TalondConfig): Promise<TalonDaemonServerHandle> {
+  const builtins = builtinTools(config.projectRoot);
+  const toolRegistry = new ToolRegistry(builtins);
 
-  return {
+  const applyConfigReload = (configTools: readonly ToolDefinition[]): void => {
+    try {
+      toolRegistry.reset([...builtins, ...configTools]);
+      console.log(`talond: tools.yaml reloaded (${configTools.length} config-declared tool(s))`);
+    } catch (error) {
+      console.error("talond: rejected tools.yaml reload (keeping previous tools):", error);
+    }
+  };
+
+  let configHandle: Awaited<ReturnType<typeof watchToolsFromYaml>> | undefined;
+  if (config.toolsConfigPath) {
+    configHandle = await watchToolsFromYaml(config.toolsConfigPath, config.projectRoot, {
+      ...(config.secretsPath !== undefined ? { secretsPath: config.secretsPath } : {}),
+      onReload: applyConfigReload,
+      onError: (error) => console.error("talond: tools.yaml reload failed (keeping previous tools):", error),
+    });
+    applyConfigReload(configHandle.tools);
+  }
+
+  const modelProvider = new OllamaProvider(config.model, config.ollamaBaseUrl);
+  const memoryStore = await MemoryStore.open(config.projectRoot, config.model);
+  const skillCatalog = await SkillCatalog.open(config.projectRoot);
+  const close = async (): Promise<void> => {
+    await configHandle?.close();
+    await memoryStore.close();
+  };
+
+  const server: talon.TalonDaemonServer = {
     checkHealth: (_call, callback) => {
       modelProvider
         .checkHealth()
@@ -72,6 +116,8 @@ export function createTalonDaemonServer(config: TalondConfig): talon.TalonDaemon
         toolRegistry,
         approvalGate,
         channel,
+        memory: memoryStore.createSession(),
+        skills: skillCatalog,
         onEvent: (event) => call.write(toServerMessage(event)),
       });
 
@@ -85,4 +131,6 @@ export function createTalonDaemonServer(config: TalondConfig): talon.TalonDaemon
         });
     },
   };
+
+  return { server, close };
 }

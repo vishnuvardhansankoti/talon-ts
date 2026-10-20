@@ -2,11 +2,11 @@
 
 A lightweight, extensible agent runtime: the same orchestration core (state machine, tool sandboxing, approval gates) runs headless on a daemon process and is driven by thin client shells — a CLI today, Electron/React Native later.
 
-Full product spec and architecture: [`docs/PRD.md`](docs/PRD.md). This README covers what's actually implemented (Phase 1) and how to run it.
+Full product spec and architecture: [`docs/PRD.md`](docs/PRD.md). This README covers what's actually implemented (Phases 1–2) and how to run it.
 
-## Status: Phase 1 — Core Engine & CLI
+## Status: Phase 2 — Memory & Skills
 
-`agent-core`'s state machine, `agent-tools`' safe/heuristic/dangerous tiering, and a CLI session against local Ollama, wired together over gRPC. No persistence, no memory, no skills catalog yet — those land in later phases per the PRD's roadmap (§7.2).
+`agent-core`'s state machine, `agent-tools`' safe/heuristic/dangerous tiering, `agent-memory`'s three-tier persistence (`USER.md`/`MEMORY.md`/SQLite FTS5), and `agent-skills`' catalog + fire-and-forget synthesis, all wired together over gRPC and driven by a CLI session against local Ollama. See [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and [`docs/architecture/phase-2.md`](docs/architecture/phase-2.md) for what each phase actually built, including a few places real implementation diverged from or filled gaps in the PRD.
 
 ## Prerequisites
 
@@ -36,6 +36,8 @@ packages/
   agent-core/           state machine, loop orchestrator, port interfaces
   agent-tools/          tool registry, execa-sandboxed executor, approval gate, builtin tools
   agent-providers/      ModelProvider contract + OllamaProvider
+  agent-memory/         USER.md / MEMORY.md / SQLite FTS5 — the three memory tiers (§4)
+  agent-skills/         SKILL.md parser, catalog, progressive disclosure, synthesizer (§2.2/§4.4)
 apps/
   talond/               the daemon — hosts agent-core, exposes it over gRPC
   cli/                  thin gRPC client: chat + y/N approval prompts
@@ -51,7 +53,7 @@ That's it — one command. `talon` is a workspace bin (`node_modules/.bin/talon`
 
 Type a message and press enter. Safe tools (`fs.read_file`, `fs.list_dir`) run without asking; anything routed to `shell.exec` outside the small built-in allowlist (`git status`, `npm test`, `ls`, `pwd`) will prompt for approval before running.
 
-Each project gets its own daemon and socket, under `<project>/.talon/` (gitignored) — so running `talon` in two different directories never collides.
+Each project gets its own daemon, socket, and memory — `<project>/.talon/` (gitignored) holds the socket plus `USER.md`/`MEMORY.md`/`memory.db` (your profile, episodic facts, and searchable session history) and any project-local skills, so running `talon` in two different directories never collides or shares context. A small bundled skill (`skill.run_tests`) ships out of the box; ask Talon to run the test suite to see it activate.
 
 To run `talon` as a true system-wide command (not just from within this repo), link it globally once:
 
@@ -65,16 +67,18 @@ If you do need to run the daemon by hand (e.g. to watch its logs directly), `nod
 
 | Variable | Default | Used by |
 |---|---|---|
-| `TALON_PROJECT_ROOT` | `process.cwd()` | `talond` — root directory tools operate within; `cli` — passed through when it auto-starts talond |
+| `TALON_PROJECT_ROOT` | `process.cwd()` | `talond` — root directory tools and memory operate within; `cli` — passed through when it auto-starts talond |
 | `TALON_MODEL` | `qwen2.5:7b-instruct` | `talond` — Ollama model name |
 | `TALON_SOCKET` | `<project>/.talon/talond.sock` | `talond` and `cli` — Unix domain socket path they talk over |
+| `TALON_TOOLS_CONFIG` | unset (no config-declared tools) | `talond` — path to a YAML file or directory declaring extra `http`/`exec`/`mcp` tools (see `packages/agent-tools/examples/`), hot-reloaded on change |
+| `TALON_SECRETS_FILE` | unset | `talond` — path to a secrets file `{fromSecret}` references in `TALON_TOOLS_CONFIG` resolve against |
 
 ## Development
 
 ```
 pnpm run build   # tsc -b across all packages (via turbo, cached)
 pnpm run lint     # eslint, including the agent-core dependency-boundary rules
-pnpm run test     # jest, across agent-core / agent-tools / agent-providers
+pnpm run test     # jest, across agent-core / agent-tools / agent-providers / agent-memory / agent-skills
 ```
 
 ## Packaging the daemon

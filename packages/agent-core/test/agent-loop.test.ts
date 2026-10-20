@@ -7,8 +7,11 @@ import type {
   ApprovalGatePort,
   CompletionChunk,
   CompletionRequest,
+  MemoryPort,
+  MemoryTurn,
   ModelProviderPort,
   ProposedToolCall,
+  SkillsPort,
   ToolExecutionPortContext,
   ToolExecutionResultPort,
   ToolRegistryPort,
@@ -26,6 +29,25 @@ function fakeChannel(inputs: ChannelInput[]): Channel & { outputs: ChannelOutput
     async emit(output) {
       outputs.push(output);
     },
+  };
+}
+
+function fakeMemory(overrides: Partial<MemoryPort> = {}): MemoryPort {
+  return {
+    loadProfile: async () => "",
+    recallEpisodic: async () => [],
+    compact: async () => {},
+    ...overrides,
+  };
+}
+
+function fakeSkills(overrides: Partial<SkillsPort> = {}): SkillsPort {
+  return {
+    listCatalog: async () => [],
+    activate: async () => [],
+    hasMatchingSkill: async () => false,
+    evaluateDraft: async () => ({ accepted: false, reason: "no-op fake" }),
+    ...overrides,
   };
 }
 
@@ -57,6 +79,8 @@ describe("AgentLoop", () => {
       toolRegistry,
       approvalGate,
       channel,
+      memory: fakeMemory(),
+      skills: fakeSkills(),
       onEvent: (e) => events.push(e),
     });
 
@@ -93,6 +117,8 @@ describe("AgentLoop", () => {
       toolRegistry,
       approvalGate,
       channel,
+      memory: fakeMemory(),
+      skills: fakeSkills(),
       onEvent: (e) => events.push(e),
     });
 
@@ -123,6 +149,8 @@ describe("AgentLoop", () => {
       toolRegistry,
       approvalGate,
       channel,
+      memory: fakeMemory(),
+      skills: fakeSkills(),
       budget: {
         maxTurnsPerSession: 40,
         maxToolCallsPerTurn: 8,
@@ -174,6 +202,8 @@ describe("AgentLoop", () => {
       toolRegistry,
       approvalGate,
       channel,
+      memory: fakeMemory(),
+      skills: fakeSkills(),
       onEvent: (e) => events.push(e),
     });
 
@@ -183,5 +213,209 @@ describe("AgentLoop", () => {
     expect(verifications).toHaveLength(2);
     expect(verifications[0]).toMatchObject({ passed: false });
     expect(verifications[1]).toMatchObject({ passed: true });
+  });
+
+  it("recalls episodic memory and a loaded profile into context, and persists turns via memory.compact", async () => {
+    const channel = fakeChannel([{ text: "what does talon use" }]);
+    const events: AgentEvent[] = [];
+    const toolRegistry: ToolRegistryPort = {
+      listSchemas: () => [],
+      resolveTier: () => "safeReadOnly",
+      execute: async () => ({ success: true, output: null }),
+    };
+    const approvalGate: ApprovalGatePort = { request: async () => "approved" };
+
+    let capturedRequest: CompletionRequest | undefined;
+    const modelProvider: ModelProviderPort = {
+      async *complete(request: CompletionRequest) {
+        capturedRequest = request;
+        yield { kind: "text", text: "noted" };
+        yield { kind: "done" };
+      },
+    };
+
+    const recallCalls: string[] = [];
+    const compactCalls: { turns: readonly MemoryTurn[]; sessionEnding: boolean }[] = [];
+    const memory = fakeMemory({
+      loadProfile: async () => "User prefers concise answers.",
+      recallEpisodic: async (query) => {
+        recallCalls.push(query);
+        return ["talon uses pnpm workspaces and turborepo"];
+      },
+      compact: async (turns, sessionEnding) => {
+        compactCalls.push({ turns, sessionEnding });
+      },
+    });
+
+    const loop = new AgentLoop({
+      modelProvider,
+      toolRegistry,
+      approvalGate,
+      channel,
+      memory,
+      skills: fakeSkills(),
+      onEvent: (e) => events.push(e),
+    });
+    await loop.run();
+
+    expect(recallCalls).toEqual(["what does talon use"]);
+
+    // The profile is folded into the system message...
+    expect(capturedRequest?.messages[0]?.role).toBe("system");
+    expect(capturedRequest?.messages[0]?.content).toContain("User prefers concise answers.");
+    // ...and the recalled entry is injected as its own system turn ahead of the user's message.
+    expect(
+      capturedRequest?.messages.some(
+        (m) => m.role === "system" && m.content.includes("talon uses pnpm workspaces"),
+      ),
+    ).toBe(true);
+
+    // One per-turn compact (sessionEnding: false) plus one at true session end.
+    expect(compactCalls.some((c) => c.sessionEnding === false)).toBe(true);
+    expect(compactCalls.at(-1)?.sessionEnding).toBe(true);
+
+    // The real turn content reached memory.compact...
+    const persistedContent = compactCalls.flatMap((c) => c.turns).map((t) => t.content);
+    expect(persistedContent).toContain("what does talon use");
+    // ...but the recalled-memory injection itself was never persisted back.
+    expect(persistedContent.some((c) => c.includes("Relevant memory"))).toBe(false);
+  });
+
+  it("injects the catalog index and an activated skill's body into context", async () => {
+    const channel = fakeChannel([{ text: "please run the tests" }]);
+    const toolRegistry: ToolRegistryPort = {
+      listSchemas: () => [],
+      resolveTier: () => "safeReadOnly",
+      execute: async () => ({ success: true, output: null }),
+    };
+    const approvalGate: ApprovalGatePort = { request: async () => "approved" };
+
+    let capturedRequest: CompletionRequest | undefined;
+    const modelProvider: ModelProviderPort = {
+      async *complete(request: CompletionRequest) {
+        capturedRequest = request;
+        yield { kind: "text", text: "ok" };
+        yield { kind: "done" };
+      },
+    };
+
+    const activatedIds: string[] = [];
+    const skills = fakeSkills({
+      listCatalog: async () => [{ id: "skill.run_tests", triggerSummary: "Run the project's test suite" }],
+      activate: async (ctx) => {
+        activatedIds.push(...ctx.activeSkillIds);
+        if (ctx.userIntentSummary.includes("tests")) {
+          return [{ id: "skill.run_tests", body: "1. Run npm test." }];
+        }
+        return [];
+      },
+    });
+
+    const loop = new AgentLoop({
+      modelProvider,
+      toolRegistry,
+      approvalGate,
+      channel,
+      memory: fakeMemory(),
+      skills,
+      onEvent: () => {},
+    });
+    await loop.run();
+
+    const systemContent = capturedRequest?.messages[0]?.content ?? "";
+    expect(systemContent).toContain("skill.run_tests");
+    expect(capturedRequest?.messages.some((m) => m.role === "system" && m.content.includes("Run npm test"))).toBe(
+      true,
+    );
+  });
+
+  it("fires SkillSynthesized for an eligible multi-tool-call turn", async () => {
+    const channel = fakeChannel([{ text: "do a two-step task" }]);
+    const events: AgentEvent[] = [];
+
+    const toolRegistry: ToolRegistryPort = {
+      listSchemas: () => [],
+      resolveTier: () => "safeReadOnly",
+      execute: async () => ({ success: true, output: "ok" }),
+    };
+    const approvalGate: ApprovalGatePort = { request: async () => "approved" };
+
+    const callA: ProposedToolCall = { id: "call-a", toolId: "fs.read_file", input: { path: "a" } };
+    const callB: ProposedToolCall = { id: "call-b", toolId: "shell.exec", input: { command: "ls" } };
+    const draftTexts: string[] = [];
+    const modelProvider = fakeModelProvider([
+      [{ kind: "toolCall", call: callA }, { kind: "toolCall", call: callB }, { kind: "done" }],
+      [{ kind: "text", text: "both steps done" }, { kind: "done" }],
+      [{ kind: "text", text: "---\nid: skill.two_step\n---\nbody" }, { kind: "done" }],
+    ]);
+
+    const skills = fakeSkills({
+      hasMatchingSkill: async () => false,
+      evaluateDraft: async (rawDraftText) => {
+        draftTexts.push(rawDraftText);
+        return { accepted: true, skillId: "skill.two_step", reason: "confidence 0.9 meets threshold" };
+      },
+    });
+
+    const loop = new AgentLoop({
+      modelProvider,
+      toolRegistry,
+      approvalGate,
+      channel,
+      memory: fakeMemory(),
+      skills,
+      onEvent: (e) => events.push(e),
+    });
+    await loop.run();
+
+    expect(draftTexts).toHaveLength(1);
+    expect(draftTexts[0]).toContain("skill.two_step");
+    expect(events).toContainEqual({
+      kind: "SkillSynthesized",
+      accepted: true,
+      skillId: "skill.two_step",
+      reason: "confidence 0.9 meets threshold",
+    });
+  });
+
+  it("never triggers synthesis for a turn that used a dangerousConfirmRequired tool", async () => {
+    const channel = fakeChannel([{ text: "do a risky two-step task" }]);
+    const events: AgentEvent[] = [];
+
+    const toolRegistry: ToolRegistryPort = {
+      listSchemas: () => [],
+      resolveTier: (toolId) => (toolId === "shell.exec" ? "dangerousConfirmRequired" : "safeReadOnly"),
+      execute: async () => ({ success: true, output: "ok" }),
+    };
+    const approvalGate: ApprovalGatePort = { request: async () => "approved" }; // approves even the dangerous call
+
+    const callA: ProposedToolCall = { id: "call-a", toolId: "fs.read_file", input: { path: "a" } };
+    const callB: ProposedToolCall = { id: "call-b", toolId: "shell.exec", input: { command: "rm thing" } };
+    const modelProvider = fakeModelProvider([
+      [{ kind: "toolCall", call: callA }, { kind: "toolCall", call: callB }, { kind: "done" }],
+      [{ kind: "text", text: "both steps done" }, { kind: "done" }],
+    ]);
+
+    let draftRequested = false;
+    const skills = fakeSkills({
+      evaluateDraft: async () => {
+        draftRequested = true;
+        return { accepted: true, reason: "should never be reached" };
+      },
+    });
+
+    const loop = new AgentLoop({
+      modelProvider,
+      toolRegistry,
+      approvalGate,
+      channel,
+      memory: fakeMemory(),
+      skills,
+      onEvent: (e) => events.push(e),
+    });
+    await loop.run();
+
+    expect(draftRequested).toBe(false);
+    expect(events.some((e) => e.kind === "SkillSynthesized")).toBe(false);
   });
 });

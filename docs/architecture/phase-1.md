@@ -27,7 +27,8 @@ graph LR
     end
 
     READLINE --> GRPCCLIENT
-    GRPCCLIENT <-->|"StreamSession (bidi stream)<br/>unix://&lt;project&gt;/.talon/talond.sock"| GRPCSERVER
+    GRPCCLIENT -->|"StreamSession (bidi stream)<br/>unix://&lt;project&gt;/.talon/talond.sock"| GRPCSERVER
+    GRPCSERVER --> GRPCCLIENT
     GRPCSERVER --> CHANNEL
     GRPCSERVER --> APPROVAL
     CHANNEL --> LOOP
@@ -44,8 +45,8 @@ graph LR
 ```mermaid
 graph TB
     subgraph Apps
-        TALOND["apps/talond"]
-        CLI["apps/cli"]
+        TALOND_APP["apps/talond"]
+        CLI_APP["apps/cli"]
     end
     subgraph Packages
         CORE["@talon/agent-core<br/>(zero deps on siblings)"]
@@ -54,11 +55,11 @@ graph TB
         CONTRACTS["@talon/grpc-contracts"]
     end
 
-    TALOND --> CORE
-    TALOND --> TOOLS
-    TALOND --> PROVIDERS
-    TALOND --> CONTRACTS
-    CLI --> CONTRACTS
+    TALOND_APP --> CORE
+    TALOND_APP --> TOOLS
+    TALOND_APP --> PROVIDERS
+    TALOND_APP --> CONTRACTS
+    CLI_APP --> CONTRACTS
 
     TOOLS -.->|"structurally satisfies<br/>ToolRegistryPort"| CORE
     PROVIDERS -.->|"structurally satisfies<br/>ModelProviderPort"| CORE

@@ -4,8 +4,14 @@ import { ContextBuilder } from "../context/context-builder.js";
 import type { AgentEvent } from "../events/agent-event.js";
 import type {
   ApprovalGatePort,
+  CompletionRequest,
+  MemoryPort,
+  MemoryTurn,
+  Message,
   ModelProviderPort,
   ProposedToolCall,
+  SkillCatalogEntryPort,
+  SkillsPort,
   ToolExecutionResultPort,
   ToolRegistryPort,
 } from "../shared/ports.js";
@@ -17,6 +23,8 @@ export interface AgentLoopDeps {
   readonly toolRegistry: ToolRegistryPort;
   readonly approvalGate: ApprovalGatePort;
   readonly channel: Channel;
+  readonly memory: MemoryPort;
+  readonly skills: SkillsPort;
   readonly budget?: LoopBudget;
   readonly systemPrompt?: string;
   readonly sessionId?: string;
@@ -34,12 +42,63 @@ const DEFAULT_SYSTEM_PROMPT =
 /** Phase 1 stand-in for real §4.2 token-budget compaction: a fixed turn-count window. */
 const PHASE_1_MAX_CONTEXT_TURNS = 50;
 
+/** How many episodic entries OBSERVE recalls per turn — no PRD-specified
+ * constant; kept small since recalled entries are injected into context. */
+const MEMORY_RECALL_LIMIT = 5;
+
+/** Rolling window of tool ids fed into SkillActivationContext.recentToolIds
+ * — no PRD-specified size; bounded so it doesn't grow unboundedly over a
+ * long session. */
+const RECENT_TOOL_IDS_LIMIT = 10;
+
+/** §4.4's Draft→Evaluate pipeline, "Draft" half — the actual model call is
+ * orchestrated here (agent-skills has no model-calling capability of its
+ * own), asking for a candidate in exactly the frontmatter shape
+ * `evaluateDraft`/`parseSkillFile` expect. */
+function buildDraftPrompt(outcomes: readonly ToolCallOutcome[]): string {
+  const steps = outcomes
+    .map(
+      (outcome, index) =>
+        `${index + 1}. Called \`${outcome.call.toolId}\` with input ${JSON.stringify(outcome.call.input)} -> ${
+          outcome.result.success ? "succeeded" : "failed"
+        }`,
+    )
+    .join("\n");
+
+  return [
+    "A tool-using turn just completed successfully with this tool-call sequence:",
+    steps,
+    "",
+    "If this looks like a genuinely reusable, repeatable workflow, draft a SKILL.md candidate in exactly this format:",
+    "---",
+    "id: skill.<short_snake_case_id>",
+    'trigger_summary: "<one-line description of when to use this skill>"',
+    "origin: synthesized",
+    "confidence: <your confidence from 0.0 to 1.0 that this is a genuinely reusable skill>",
+    "---",
+    "# <Title>",
+    "1. <step>",
+    "2. <step>",
+    "",
+    "Respond with only the SKILL.md content above, nothing else.",
+  ].join("\n");
+}
+
+function formatCatalogIndex(catalog: readonly SkillCatalogEntryPort[]): string {
+  const lines = catalog.map((entry) => `- ${entry.id}: ${entry.triggerSummary}`);
+  return `Available skills (their full instructions load automatically when relevant):\n${lines.join("\n")}`;
+}
+
 export class AgentLoop {
   private state: AgentState = { kind: "OBSERVE" };
   private readonly context: ContextBuilder;
   private readonly budget: LoopBudget;
   private readonly sessionId: string;
   private turnCount = 0;
+  private pendingMemoryTurns: MemoryTurn[] = [];
+  private recentToolIds: string[] = [];
+  private activeSkillIds = new Set<string>();
+  private pendingSynthesis: Promise<void>[] = [];
 
   constructor(private readonly deps: AgentLoopDeps) {
     this.budget = deps.budget ?? defaultLoopBudget;
@@ -48,6 +107,12 @@ export class AgentLoop {
   }
 
   async run(): Promise<void> {
+    const profile = await this.deps.memory.loadProfile();
+    if (profile.length > 0) this.context.prependSystemContext(profile);
+
+    const catalog = await this.deps.skills.listCatalog();
+    if (catalog.length > 0) this.context.prependSystemContext(formatCatalogIndex(catalog));
+
     for await (const input of this.deps.channel.input) {
       if (this.turnCount >= this.budget.maxTurnsPerSession) {
         await this.deps.channel.emit({
@@ -60,9 +125,19 @@ export class AgentLoop {
       this.turnCount += 1;
       this.applyTransition({ type: "MORE_TURNS" }); // COMPACT -> OBSERVE
     }
+    // The channel has closed — this is the actual end of the gRPC session,
+    // as distinct from the end of any one turn (the 3 compact() call sites
+    // in runTurn() below always pass sessionEnding: false).
+    await this.compact(true);
     if (this.state.kind === "COMPACT") {
       this.applyTransition({ type: "SESSION_END" });
     }
+    // Any still-in-flight fire-and-forget skill synthesis (triggerSkillSynthesis
+    // below) must finish before run() returns — otherwise its eventual
+    // emit() could call call.write(...) after grpc-server.ts's
+    // .finally(() => call.end()) already fired. Each promise already
+    // swallows its own rejection, so allSettled is just a drain, not error handling.
+    await Promise.allSettled(this.pendingSynthesis);
   }
 
   /**
@@ -80,7 +155,27 @@ export class AgentLoop {
    */
   private async runTurn(input: ChannelInput): Promise<void> {
     this.setState({ kind: "OBSERVE" });
-    this.context.addTurn({ role: "user", content: input.text });
+    const recalled = await this.deps.memory.recallEpisodic(input.text, MEMORY_RECALL_LIMIT);
+    if (recalled.length > 0) {
+      // Recalled context is injected for the model to see, not persisted
+      // back into the transcript it was recalled from — context.addTurn()
+      // directly, bypassing the addTurn() wrapper below.
+      this.context.addTurn({ role: "system", content: `Relevant memory:\n- ${recalled.join("\n- ")}` });
+    }
+
+    const activated = await this.deps.skills.activate({
+      userIntentSummary: input.text,
+      recentToolIds: this.recentToolIds,
+      activeSkillIds: this.activeSkillIds,
+    });
+    for (const skill of activated) {
+      // Same treatment as recalled memory above: injected for the model to
+      // see, not persisted back into the transcript via addTurn()'s wrapper.
+      this.context.addTurn({ role: "system", content: skill.body });
+      this.activeSkillIds.add(skill.id);
+    }
+
+    this.addTurn({ role: "user", content: input.text });
 
     let verifyRetries = 0;
     let denialReplans = 0;
@@ -94,7 +189,7 @@ export class AgentLoop {
         this.setState({ kind: "PLAN" });
         const { assistantText, toolCalls } = await this.plan();
         if (assistantText.length > 0) {
-          this.context.addTurn({ role: "assistant", content: assistantText });
+          this.addTurn({ role: "assistant", content: assistantText });
         }
 
         if (toolCalls.length === 0) {
@@ -108,12 +203,12 @@ export class AgentLoop {
         if (anyDenied) {
           if (denialReplans >= this.budget.maxDenialReplans) {
             this.applyTransition({ type: "APPROVAL_DENIED_ABORT" });
-            this.compact();
+            await this.compact();
             return;
           }
           denialReplans += 1;
           this.applyTransition({ type: "APPROVAL_DENIED_REPLAN" });
-          this.context.addTurn({
+          this.addTurn({
             role: "tool",
             content:
               "One or more proposed tool calls were denied by the user. Continue without them, or propose a different approach.",
@@ -142,16 +237,16 @@ export class AgentLoop {
 
       if (verification.passed) {
         this.applyTransition({ type: "VERIFY_PASSED" }); // -> LEARN
-        // Phase 1 has no agent-skills package yet: LEARN is a pass-through.
         this.setState({ kind: "COMPACT" }); // LEARN -> COMPACT is unconditional
-        this.compact();
+        this.triggerSkillSynthesis(allOutcomes);
+        await this.compact();
         return;
       }
 
       if (verifyRetries < this.budget.maxVerifyRetries) {
         verifyRetries += 1;
         this.applyTransition({ type: "VERIFY_FAILED_RETRY" });
-        this.context.addTurn({
+        this.addTurn({
           role: "tool",
           content: `Verification failed: ${verification.reason ?? "unknown reason"}. Try again.`,
         });
@@ -159,7 +254,7 @@ export class AgentLoop {
       }
 
       this.applyTransition({ type: "VERIFY_FAILED_EXHAUSTED" });
-      this.compact();
+      await this.compact();
       return;
     }
   }
@@ -222,11 +317,13 @@ export class AgentLoop {
           cancellation: controller.signal,
         });
         outcomes.push({ call, result });
-        this.context.addTurn({
+        this.addTurn({
           role: "tool",
           content: JSON.stringify(result),
           toolCallId: call.id,
         });
+        this.recentToolIds.push(call.toolId);
+        if (this.recentToolIds.length > RECENT_TOOL_IDS_LIMIT) this.recentToolIds.shift();
       }
     } finally {
       clearTimeout(timeout);
@@ -252,8 +349,81 @@ export class AgentLoop {
     return { passed: true };
   }
 
-  private compact(): void {
+  /**
+   * §4.4 trigger conditions, the two checkable synchronously before any
+   * async work: >=2 tool calls, and no tool in this turn resolved to
+   * `dangerousConfirmRequired`. The latter is this design's resolution of
+   * the PRD's tier-preservation gate (filled gap #3 — see design doc):
+   * since a draft can't make or violate a tier claim the format has no
+   * field for, a turn that needed full manual confirmation is simply
+   * never eligible for synthesis in the first place. Fire-and-forget by
+   * design (PRD §4.4: "not awaited by the user-facing response") — the
+   * returned promise is tracked in `pendingSynthesis` so `run()` can drain
+   * it before the gRPC session actually ends, never awaited here.
+   */
+  private triggerSkillSynthesis(outcomes: readonly ToolCallOutcome[]): void {
+    if (outcomes.length < 2) return;
+
+    const usedDangerousTool = outcomes.some(
+      (outcome) => this.deps.toolRegistry.resolveTier(outcome.call.toolId, outcome.call.input) === "dangerousConfirmRequired",
+    );
+    if (usedDangerousTool) return;
+
+    const promise = this.synthesizeSkillDraft(outcomes).catch((error: unknown) => {
+      this.emit({
+        kind: "SkillSynthesized",
+        accepted: false,
+        reason: `synthesis failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    });
+    this.pendingSynthesis.push(promise);
+  }
+
+  private async synthesizeSkillDraft(outcomes: readonly ToolCallOutcome[]): Promise<void> {
+    const toolIds = outcomes.map((outcome) => outcome.call.toolId);
+    if (await this.deps.skills.hasMatchingSkill(toolIds)) return; // §4.4 trigger condition #2
+
+    const request: CompletionRequest = {
+      messages: [{ role: "system", content: buildDraftPrompt(outcomes) }],
+      tools: [], // drafting is plain text generation, no tool-calling involved
+    };
+
+    let draftText = "";
+    for await (const chunk of this.deps.modelProvider.complete(request)) {
+      if (chunk.kind === "text") draftText += chunk.text;
+    }
+
+    const evaluation = await this.deps.skills.evaluateDraft(draftText);
+    this.emit({
+      kind: "SkillSynthesized",
+      accepted: evaluation.accepted,
+      ...(evaluation.skillId !== undefined ? { skillId: evaluation.skillId } : {}),
+      reason: evaluation.reason,
+    });
+  }
+
+  /** Mirrors a real conversational turn into both the live context and the
+   * pending-memory buffer `compact()` drains to `MemoryPort` — the
+   * synthetic OBSERVE memory-recall injection bypasses this and calls
+   * `context.addTurn()` directly, since recalled context shouldn't be
+   * persisted back into the transcript it was recalled from. */
+  private addTurn(turn: Message & { role: "user" | "assistant" | "tool" }): void {
+    this.context.addTurn(turn);
+    this.pendingMemoryTurns.push({
+      role: turn.role,
+      content: turn.content,
+      ...(turn.toolCallId !== undefined ? { toolId: turn.toolCallId } : {}),
+    });
+  }
+
+  /**
+   * PRD §3.1: "session persistence to SQLite" is a COMPACT-time action.
+   * `sessionEnding` is only ever true from `run()`'s post-loop call — the
+   * 3 in-turn call sites above always pass the default `false`.
+   */
+  private async compact(sessionEnding = false): Promise<void> {
     this.context.compact(PHASE_1_MAX_CONTEXT_TURNS);
+    await this.deps.memory.compact(this.pendingMemoryTurns.splice(0), sessionEnding);
   }
 
   private setState(next: AgentState): void {

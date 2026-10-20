@@ -1,0 +1,102 @@
+# Example tools.yaml for @talon/agent-tools' YAML tool configuration
+# (see ../../../docs/architecture/yaml-tool-config.md for the full design).
+#
+# Point TALON_TOOLS_CONFIG at a copy of this file (with real ids/urls/
+# commands swapped in) and `loadToolsFromYaml` will turn each entry below
+# into a real ToolDefinition, merged alongside the builtin tools.
+# TALON_TOOLS_CONFIG may also point at a *directory* of fragments like
+# this one instead of a single file (§8) — every *.yaml/*.yml inside it
+# gets loaded, and it's hot-reloaded on change either way (§9).
+#
+# Every entry needs a unique, dot-namespaced "id" and a JSON Schema
+# "inputSchema" (except "mcp" entries, whose tools' schemas come from the
+# connected server). Fields are validated at load time — an invalid entry
+# fails the whole file with an error naming exactly which entry is wrong.
+
+tools:
+  # --- kind: http -----------------------------------------------------
+  # One entry = one templated HTTP call. GET (or omitting "method")
+  # floors at heuristicSandboxed; POST/PUT/PATCH/DELETE floor at
+  # dangerousConfirmRequired. "allowedHosts" is required — the request
+  # (and every redirect hop) must resolve to one of these hosts, and a
+  # literal IP address or "localhost" is always blocked regardless.
+  - kind: http
+    id: weather.lookup
+    description: "Look up the current weather for a city."
+    allowedHosts: ["api.weather.example.com"]
+    method: GET
+    url: "https://api.weather.example.com/v1/current"
+    query:
+      # {fromInput: <field>} pulls a value out of the model's validated
+      # tool-call input — never string-interpolated into the URL.
+      city: { fromInput: city }
+    headers:
+      # {fromEnv: <VAR>} reads a secret from the environment at call
+      # time; the YAML file itself never contains the secret value.
+      Authorization: { fromEnv: WEATHER_API_KEY, prefix: "Bearer " }
+    inputSchema:
+      type: object
+      properties:
+        city: { type: string }
+      required: [city]
+
+  # A mutating method floors at dangerousConfirmRequired (every call
+  # prompts, nothing auto-approved) — no "safetyTier" override needed
+  # here since that's already the strictest tier.
+  - kind: http
+    id: tickets.create
+    description: "File a support ticket."
+    allowedHosts: ["api.support.example.com"]
+    method: POST
+    url: "https://api.support.example.com/v1/tickets"
+    headers:
+      # {fromSecret: <name>} resolves against TALON_SECRETS_FILE instead
+      # of an env var (§7) — see ../examples/secrets.example.yaml. Same
+      # rule as {fromEnv}: the YAML file never contains the secret value.
+      Authorization: { fromSecret: SUPPORT_API_KEY, prefix: "Bearer " }
+    body:
+      title: { fromInput: title }
+      body: { fromInput: description }
+    inputSchema:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+      required: [title, description]
+
+  # --- kind: exec -------------------------------------------------------
+  # One entry = one templated local command. args are a list of literals
+  # or {fromInput: <field>} — bound straight to argv (execa), never
+  # through a shell, so a value containing shell metacharacters is
+  # carried through as one opaque argument, never interpreted.
+  - kind: exec
+    id: repo.lint_file
+    description: "Run the project's linter against a single file."
+    command: npm
+    args: ["run", "lint", "--", { fromInput: filePath }]
+    # Optional overrides — default to the app's project root and its
+    # usual [PATH, HOME, LANG] allowlist if omitted.
+    cwd: "./packages/web"
+    envAllowlist: ["PATH", "HOME", "NODE_ENV"]
+    inputSchema:
+      type: object
+      properties:
+        filePath: { type: string }
+      required: [filePath]
+
+  # --- kind: mcp (stdio) -------------------------------------------------
+  # One entry = one MCP server connection. Every tool the server reports
+  # via tools/list is auto-discovered and registered as
+  # "<entry id>.<server tool name>" — e.g. "figma.get_file" below — and
+  # is unconditionally floored at dangerousConfirmRequired (no
+  # "safetyTier" field exists on an mcp entry to override that).
+  - kind: mcp
+    id: figma
+    transport: stdio
+    command: ["npx", "-y", "@figma/mcp-server"]
+
+  # --- kind: mcp (http) ---------------------------------------------------
+  - kind: mcp
+    id: linear
+    transport: http
+    url: "https://mcp.linear.app/mcp"

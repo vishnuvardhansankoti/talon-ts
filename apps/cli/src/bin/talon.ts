@@ -11,6 +11,8 @@ const require = createRequire(import.meta.url);
 
 const projectRoot = process.env["TALON_PROJECT_ROOT"] ?? process.cwd();
 const model = process.env["TALON_MODEL"]; // undefined means "let talond apply its own default"
+const toolsConfigPath = process.env["TALON_TOOLS_CONFIG"]; // undefined means "no config-declared tools"
+const secretsPath = process.env["TALON_SECRETS_FILE"]; // undefined means "no secrets file configured"
 const socketPath = process.env["TALON_SOCKET"] ?? path.join(projectRoot, ".talon", "talond.sock");
 const address = `unix://${socketPath}`;
 
@@ -98,6 +100,8 @@ async function ensureTalondRunning(): Promise<void> {
         TALON_PROJECT_ROOT: projectRoot,
         TALON_SOCKET: socketPath,
         ...(model !== undefined ? { TALON_MODEL: model } : {}),
+        ...(toolsConfigPath !== undefined ? { TALON_TOOLS_CONFIG: toolsConfigPath } : {}),
+        ...(secretsPath !== undefined ? { TALON_SECRETS_FILE: secretsPath } : {}),
       },
     },
   );

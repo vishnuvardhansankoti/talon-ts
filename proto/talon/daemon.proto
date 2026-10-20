@@ -54,6 +54,7 @@ message AgentEvent {
     ToolCallProposed tool_call_proposed = 2;
     ToolCallDelta tool_call_delta = 3;
     VerificationResult verification_result = 4;
+    SkillSynthesized skill_synthesized = 5;
   }
 }
 
@@ -75,6 +76,14 @@ message ToolCallDelta {
 message VerificationResult {
   bool passed = 1;
   string reason = 2;
+}
+
+// §4.4's Draft -> Evaluate pipeline outcome, fire-and-forget from LEARN.
+// Phase 2 scope cut (PRD §7.2): logged only, never persisted to disk/SQLite.
+message SkillSynthesized {
+  bool accepted = 1;
+  string skill_id = 2;
+  string reason = 3;
 }
 
 message HealthRequest {}

@@ -13,6 +13,9 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "execa": "^9.5.2"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "ajv": "^8.17.1",
+    "execa": "^9.5.2",
+    "yaml": "^2.7.0"
   }
 }

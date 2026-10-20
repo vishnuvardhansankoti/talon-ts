@@ -16,6 +16,8 @@ const esmTsProject = (displayName, rootDir) => ({
 export default {
   projects: [
     esmTsProject("agent-core", "packages/agent-core"),
+    esmTsProject("agent-memory", "packages/agent-memory"),
+    esmTsProject("agent-skills", "packages/agent-skills"),
     esmTsProject("agent-tools", "packages/agent-tools"),
     esmTsProject("agent-providers", "packages/agent-providers"),
   ],

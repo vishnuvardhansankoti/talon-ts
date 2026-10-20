@@ -22,13 +22,36 @@ export type ToolRegistryResult =
  * ever importing this package — see packages/agent-core/src/shared/ports.ts.
  */
 export class ToolRegistry {
-  private readonly byId = new Map<string, ToolDefinition>();
+  private byId: Map<string, ToolDefinition>;
   private readonly sandbox = new ToolSandbox();
 
   constructor(tools: readonly ToolDefinition[]) {
+    this.byId = ToolRegistry.buildMap(tools);
+  }
+
+  private static buildMap(tools: readonly ToolDefinition[]): Map<string, ToolDefinition> {
+    const map = new Map<string, ToolDefinition>();
     for (const tool of tools) {
-      this.byId.set(tool.id, tool);
+      if (map.has(tool.id)) {
+        // Catches a collision regardless of source (builtin vs. a
+        // config-declared tool, or two config-declared tools) — the
+        // loader only knows about collisions within the files it reads.
+        throw new Error(`duplicate tool id "${tool.id}"`);
+      }
+      map.set(tool.id, tool);
     }
+    return map;
+  }
+
+  /**
+   * Atomically replaces the full tool set — e.g. after a tools.yaml hot
+   * reload (§7 follow-up: watchToolsFromYaml). The entire new set is
+   * validated for duplicate ids before anything is committed, so a
+   * rejected reset leaves the previous tool set serving unchanged rather
+   * than leaving the registry half-updated.
+   */
+  reset(tools: readonly ToolDefinition[]): void {
+    this.byId = ToolRegistry.buildMap(tools);
   }
 
   listSchemas(): ToolRegistrySchema[] {

@@ -31,13 +31,13 @@ Talon is a lightweight, extensible agent runtime that runs the *same* orchestrat
 
 ```mermaid
 graph TB
-    subgraph MobileShell["apps/mobile — Expo (React Native)"]
+    subgraph MobileShell["apps/mobile - Expo (React Native)"]
         MOBILE_UI["React Native UI"]
         MOBILE_CORE["agent-core<br/>(in-process, Hermes runtime)"]
         MOBILE_MODS["Expo Modules<br/>(Apple FM / LiteRT bridges)"]
     end
 
-    subgraph DesktopShell["apps/desktop — Electron"]
+    subgraph DesktopShell["apps/desktop - Electron"]
         ELECTRON_RENDERER["Renderer<br/>(UI only)"]
         ELECTRON_MAIN["Main process<br/>(thin gRPC client)"]
     end
@@ -46,7 +46,7 @@ graph TB
         CLI["Node CLI<br/>(thin gRPC client)"]
     end
 
-    subgraph Daemon["apps/talond — standalone Node daemon"]
+    subgraph Daemon["apps/talond - standalone Node daemon"]
         TALOND_CORE["agent-core<br/>(hosted instance)"]
         TALOND_GRPC["gRPC server"]
     end
@@ -750,13 +750,13 @@ Runs **unconditionally** before any payload crosses a process/network boundary t
 
 ```mermaid
 flowchart LR
-    A[Raw turn content] --> B[Regex Pass<br/>emails, phone, SSN, card#, API keys]
-    B --> C{Local NPU<br/>NER pass<br/>names, addresses}
-    C -->|entities found| D[Redact + tag:<br/>PERSON_1, ADDR_1]
-    C -->|clean| E[Pass through]
-    D --> F[Payload to cloud provider]
-    E --> F
-    F --> G[Response de-redaction<br/>map tags back for local display only]
+    PII_A[Raw turn content] --> PII_B[Regex Pass<br/>emails, phone, SSN, card#, API keys]
+    PII_B --> PII_C{Local NPU<br/>NER pass<br/>names, addresses}
+    PII_C -->|entities found| PII_D[Redact + tag:<br/>PERSON_1, ADDR_1]
+    PII_C -->|clean| PII_E[Pass through]
+    PII_D --> PII_F[Payload to cloud provider]
+    PII_E --> PII_F
+    PII_F --> PII_G[Response de-redaction<br/>map tags back for local display only]
 ```
 
 - **Regex pass** (deterministic, always on): emails, phone numbers (E.164 + common US formats), SSNs, credit card numbers (Luhn-validated), common cloud API key patterns (`sk-`, `AKIA`, etc.).
@@ -994,24 +994,24 @@ One OTel trace per session, mirroring the state machine in §3 so stage-level la
 graph TD
     SESSION["agent.session<br/>(session_id, platform, provider_id)"]
     TURN["agent.turn<br/>(turn_index)"]
-    OBS["agent.state.observe"]
-    PLAN["agent.state.plan"]
-    PRE["agent.state.pre_approval"]
-    ACT["agent.state.act"]
-    TOOL["tool.execute<br/>(tool_id, safety_tier, success)"]
-    VER["agent.state.verify"]
-    LEARN["agent.state.learn"]
-    COMPACT["agent.state.compact"]
+    SPAN_OBSERVE["agent.state.observe"]
+    SPAN_PLAN["agent.state.plan"]
+    SPAN_PRE["agent.state.pre_approval"]
+    SPAN_ACT["agent.state.act"]
+    SPAN_TOOL["tool.execute<br/>(tool_id, safety_tier, success)"]
+    SPAN_VERIFY["agent.state.verify"]
+    SPAN_LEARN["agent.state.learn"]
+    SPAN_COMPACT["agent.state.compact"]
 
     SESSION --> TURN
-    TURN --> OBS
-    TURN --> PLAN
-    TURN --> PRE
-    TURN --> ACT
-    ACT --> TOOL
-    TURN --> VER
-    TURN --> LEARN
-    TURN --> COMPACT
+    TURN --> SPAN_OBSERVE
+    TURN --> SPAN_PLAN
+    TURN --> SPAN_PRE
+    TURN --> SPAN_ACT
+    SPAN_ACT --> SPAN_TOOL
+    TURN --> SPAN_VERIFY
+    TURN --> SPAN_LEARN
+    TURN --> SPAN_COMPACT
 ```
 
 | Span | Parent | Key Attributes | Started/Ended On |
@@ -1092,11 +1092,11 @@ Both `BaseSkill.shouldActivate` (§2.2) and the intent classifier (§3.3) now re
 
 ```mermaid
 flowchart LR
-    A[User utterance] --> B[Stage 1: Keyword / intent-tag match<br/>existing §2.2 / §3.3 logic]
-    B -->|confident match or no embedding provider| C[Use Stage 1 result]
-    B -->|no match or tie| D[Stage 2: On-device embedding<br/>+ brute-force cosine similarity]
-    D -->|top match >= threshold| E[Use Stage 2 result]
-    D -->|below threshold| C
+    RT_A[User utterance] --> RT_B[Stage 1: Keyword / intent-tag match<br/>existing §2.2 / §3.3 logic]
+    RT_B -->|confident match or no embedding provider| RT_C[Use Stage 1 result]
+    RT_B -->|no match or tie| RT_D[Stage 2: On-device embedding<br/>+ brute-force cosine similarity]
+    RT_D -->|top match >= threshold| RT_E[Use Stage 2 result]
+    RT_D -->|below threshold| RT_C
 ```
 
 Stage 1 always runs first and is always free of model calls — it's the existing deterministic logic, unchanged. Stage 2 only fires when Stage 1 is inconclusive (no match, or multiple candidates tied), keeping the common case (a skill's literal trigger words are present) at zero added latency or power cost.
@@ -1277,10 +1277,10 @@ export interface SttChunk { readonly partialText: string; readonly isFinal: bool
 
 ```mermaid
 flowchart LR
-    A[WakeWordDetector<br/>always-on, local] -->|detection| B[Begin audio capture]
-    B --> C[SpeechToTextProvider<br/>streaming transcribe]
-    C -->|final transcript| D[ChannelInput text, §14.1]
-    D --> E[OBSERVE, §3.1<br/>— identical to typed input from here]
+    VC_A[WakeWordDetector<br/>always-on, local] -->|detection| VC_B[Begin audio capture]
+    VC_B --> VC_C[SpeechToTextProvider<br/>streaming transcribe]
+    VC_C -->|final transcript| VC_D[ChannelInput text, §14.1]
+    VC_D --> VC_E[OBSERVE, §3.1<br/>— identical to typed input from here]
 ```
 
 `VoiceChannel extends Channel`: on a `WakeWordDetection`, it opens the microphone, streams frames into the configured `SpeechToTextProvider`, and on the final transcript chunk, emits a `ChannelInput` with `metadata.channelId = "voice"`. No voice-specific branch exists downstream of that point — §5.2's PII scrubber, §13's semantic router, and §3.3's tier router all treat it exactly like a typed message. End-of-utterance detection uses standard STT silence/endpointing (provider-dependent), with a hard capture timeout (default 30s) that aborts to re-arm the wake-word listener rather than hanging open indefinitely.

@@ -1,12 +1,15 @@
 import type { Message } from "../shared/ports.js";
 
 /**
- * Phase 1 stand-in: no agent-memory, no SKILL.md catalog yet (PRD §4/§2.2
- * land in Phase 2+). This is just system prompt + turn history, with a
- * sliding-window trim standing in for real §4.2 compaction.
+ * System prompt + turn history, with a sliding-window trim standing in for
+ * real §4.2 compaction (real MEMORY.md compaction runs separately, inside
+ * `MemoryPort.compact` — this trim just bounds the live message list the
+ * provider sees). `agent-skills`' SKILL.md catalog (§2.2) still isn't wired
+ * in here — that's Pass 2 of Phase 2.
  */
 export class ContextBuilder {
   private turns: Message[] = [];
+  private extraSystemContext: string[] = [];
 
   constructor(private readonly systemPrompt: string) {}
 
@@ -14,8 +17,16 @@ export class ContextBuilder {
     this.turns.push(turn);
   }
 
+  /** Folds additional text into the system message — e.g. a loaded
+   * USER.md profile (§4.1). Generic string-append; stays agnostic of
+   * where the text came from. */
+  prependSystemContext(text: string): void {
+    this.extraSystemContext.push(text);
+  }
+
   buildMessages(): Message[] {
-    return [{ role: "system", content: this.systemPrompt }, ...this.turns];
+    const system = [this.systemPrompt, ...this.extraSystemContext].join("\n\n");
+    return [{ role: "system", content: system }, ...this.turns];
   }
 
   /** Naive chars/4 heuristic — good enough for a budget check, not real tokenization. */

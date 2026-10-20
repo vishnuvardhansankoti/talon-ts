@@ -15,7 +15,9 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.12.4",
     "@talon/agent-core": "workspace:*",
+    "@talon/agent-memory": "workspace:*",
     "@talon/agent-providers": "workspace:*",
+    "@talon/agent-skills": "workspace:*",
     "@talon/agent-tools": "workspace:*",
     "@talon/grpc-contracts": "workspace:*"
   }

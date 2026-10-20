@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmitOnError": true
+  },
+  "include": ["src/main", "src/preload", "src/shared"],
+  "references": [{ "path": "../../packages/grpc-contracts" }]
+}

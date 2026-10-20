@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';" />
+    <title>Talon</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="status-banner" class="status-banner"></div>
+
+    <main id="transcript" class="transcript"></main>
+
+    <div id="approval-banner" class="approval-banner hidden">
+      <span id="approval-text"></span>
+      <button id="approval-approve">Approve</button>
+      <button id="approval-deny">Deny</button>
+    </div>
+
+    <form id="composer" class="composer">
+      <input id="composer-input" type="text" placeholder="Message Talon..." autocomplete="off" disabled />
+      <button id="composer-send" type="submit" disabled>Send</button>
+    </form>
+
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>

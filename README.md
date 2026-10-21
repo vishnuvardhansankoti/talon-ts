@@ -1,12 +1,12 @@
 # Talon
 
-A lightweight, extensible agent runtime: the same orchestration core (state machine, tool sandboxing, approval gates) runs headless on a daemon process and is driven by thin client shells — a CLI today, Electron/React Native later.
+A lightweight, extensible agent runtime: the same orchestration core (state machine, tool sandboxing, approval gates) runs headless on a daemon process and is driven by thin client shells — CLI, Electron desktop, and Expo mobile. Mobile is the one exception to "headless daemon + thin shell": Hermes can't host a Node daemon, so `agent-core` runs in-process there instead (see [`docs/architecture/phase-3-mobile.md`](docs/architecture/phase-3-mobile.md)).
 
-Full product spec and architecture: [`docs/PRD.md`](docs/PRD.md). This README covers what's actually implemented (Phases 1–2) and how to run it.
+Full product spec and architecture: [`docs/PRD.md`](docs/PRD.md). This README covers what's actually implemented (Phases 1–3) and how to run it.
 
-## Status: Phase 2 — Memory & Skills
+## Status: Phase 3 — Electron Desktop & Mobile Shells
 
-`agent-core`'s state machine, `agent-tools`' safe/heuristic/dangerous tiering, `agent-memory`'s three-tier persistence (`USER.md`/`MEMORY.md`/SQLite FTS5), and `agent-skills`' catalog + fire-and-forget synthesis, all wired together over gRPC and driven by a CLI session against local Ollama. See [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and [`docs/architecture/phase-2.md`](docs/architecture/phase-2.md) for what each phase actually built, including a few places real implementation diverged from or filled gaps in the PRD.
+`agent-core`'s state machine, `agent-tools`' safe/heuristic/dangerous tiering, `agent-memory`'s three-tier persistence (`USER.md`/`MEMORY.md`/SQLite FTS5), and `agent-skills`' catalog + fire-and-forget synthesis are all wired together over gRPC and driven by a CLI or Electron desktop session against local Ollama. A separate Expo mobile shell runs `agent-core` in-process against Gemini Cloud (`GeminiProvider`, `packages/agent-providers`), with its own mobile-safe tool subset, biometric approval gate, and no persistence yet. See [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md), [`docs/architecture/phase-2.md`](docs/architecture/phase-2.md), [`docs/architecture/phase-3-desktop.md`](docs/architecture/phase-3-desktop.md), and [`docs/architecture/phase-3-mobile.md`](docs/architecture/phase-3-mobile.md) for what each phase actually built, including the places real implementation diverged from or filled gaps in the PRD.
 
 ## Prerequisites
 
@@ -35,15 +35,19 @@ packages/
   grpc-contracts/       generated TS/gRPC code from proto/ (via protoc + ts-proto)
   agent-core/           state machine, loop orchestrator, port interfaces
   agent-tools/          tool registry, execa-sandboxed executor, approval gate, builtin tools
-  agent-providers/      ModelProvider contract + OllamaProvider
+  agent-providers/      ModelProvider contract + OllamaProvider + GeminiProvider
   agent-memory/         USER.md / MEMORY.md / SQLite FTS5 — the three memory tiers (§4)
   agent-skills/         SKILL.md parser, catalog, progressive disclosure, synthesizer (§2.2/§4.4)
 apps/
   talond/               the daemon — hosts agent-core, exposes it over gRPC
   cli/                  thin gRPC client: chat + y/N approval prompts
+  desktop/              thin gRPC client: Electron chat UI + native/in-flow approval
+  mobile/               Expo app — agent-core runs in-process (no talond), Gemini Cloud only
 ```
 
-## Running it
+Each app under `apps/` has its own README with run/build instructions and known limitations: [`apps/cli/README.md`](apps/cli/README.md), [`apps/desktop/README.md`](apps/desktop/README.md), [`apps/mobile/README.md`](apps/mobile/README.md).
+
+## Running it (CLI)
 
 ```
 talon
@@ -63,15 +67,31 @@ cd apps/cli && pnpm link --global
 
 If you do need to run the daemon by hand (e.g. to watch its logs directly), `node apps/talond/dist/main.js` still works standalone.
 
+## Running it (desktop and mobile)
+
+```
+pnpm --filter @talon/desktop run build && pnpm --filter @talon/desktop run start
+```
+
+```
+cd apps/mobile && pnpm run web   # or: pnpm run start, for a device/simulator via Expo Go
+```
+
+See [`apps/desktop/README.md`](apps/desktop/README.md) and [`apps/mobile/README.md`](apps/mobile/README.md) for details — desktop auto-starts `talond` the same way the CLI does; mobile runs `agent-core` in-process against Gemini Cloud and asks for an API key on first launch instead.
+
 ### Environment variables
+
+Read by `talond`, `cli`, and `desktop` (not `mobile` — it never talks to `talond` at all). All optional — unset means "apply the default."
 
 | Variable | Default | Used by |
 |---|---|---|
-| `TALON_PROJECT_ROOT` | `process.cwd()` | `talond` — root directory tools and memory operate within; `cli` — passed through when it auto-starts talond |
+| `TALON_PROJECT_ROOT` | `process.cwd()` | `talond` — root directory tools and memory operate within; `cli`/`desktop` — passed through when they auto-start talond |
 | `TALON_MODEL` | `qwen2.5:7b-instruct` | `talond` — Ollama model name |
-| `TALON_SOCKET` | `<project>/.talon/talond.sock` | `talond` and `cli` — Unix domain socket path they talk over |
+| `TALON_SOCKET` | `<project>/.talon/talond.sock` | `talond`, `cli`, and `desktop` — Unix domain socket path they talk over |
 | `TALON_TOOLS_CONFIG` | unset (no config-declared tools) | `talond` — path to a YAML file or directory declaring extra `http`/`exec`/`mcp` tools (see `packages/agent-tools/examples/`), hot-reloaded on change |
 | `TALON_SECRETS_FILE` | unset | `talond` — path to a secrets file `{fromSecret}` references in `TALON_TOOLS_CONFIG` resolve against |
+
+A `.env.example` at the repo root documents the same table for reference — there's no dotenv loader wired up, so export these in your shell rather than expecting the file to be picked up automatically.
 
 ## Development
 

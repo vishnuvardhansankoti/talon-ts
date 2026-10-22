@@ -22,6 +22,16 @@ pnpm --filter @talon/mobile run typecheck
 
 There's no `build` script — Metro bundles the app directly from TypeScript source at `start`/`web` time (via `babel-preset-expo`); `tsc` here is for type-checking only, same convention `tsconfig.json`'s `extends: "expo/tsconfig.base"` signals (this app is *not* part of the rest of the repo's `tsc -b` project-reference graph).
 
+## Tests
+
+```
+cd apps/mobile && pnpm run test
+```
+
+Run standalone, not through the repo root's `pnpm test` — this app's own `jest.config.js` uses `jest-expo`'s babel-based transform (matching how Metro actually bundles it), not the `ts-jest` setup the rest of the monorepo shares, and nesting it into that shared multi-project config broke `@babel/runtime` module resolution in a way that only reproduced when run from there.
+
+Covers `MobileChannel` (pure, no mocking needed), `MobileToolRegistry` (path-sandboxing rejections and tool dispatch, with `expo-file-system`/`react-native` mocked), `MobileApprovalGate` (all four tier/hardware/enrollment branches, with `expo-local-authentication` mocked), and `AgentSession`'s error handling — including the exact "session silently went dead after a provider error" bug §5 of the architecture doc describes, reproduced here with a mocked `fetch` rejecting `GeminiProvider`'s call.
+
 ## Tool subset
 
 Only tools that make sense inside the app's OS sandbox are registered (`src/agent/mobile-tools.ts`) — no `shell.exec`, matching PRD §5.1's mobile row ("no raw shell access... limited to in-process, OS-mediated operations"):

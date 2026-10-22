@@ -3,10 +3,10 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { talon } from "@talon/grpc-contracts";
 import { connectToTalond, type DaemonSession } from "./daemon-client.js";
+import { toAgentEventPayload } from "./event-mapping.js";
 import {
   MainToRendererChannel,
   RendererToMainChannel,
-  type AgentEventPayload,
   type ApprovalDecisionPayload,
   type ApprovalRequestPayload,
   type ChannelOutputPayload,
@@ -37,34 +37,6 @@ function createWindow(): BrowserWindow {
   });
   void win.loadFile(path.join(__dirname, "../renderer/index.html"));
   return win;
-}
-
-/**
- * One AgentEvent.agentEvent.toolCallProposed/toolCallDelta exist on the wire
- * (daemon.proto) but neither apps/cli nor this renderer surfaces them yet —
- * same scope cut, not an oversight: the CLI's own toServerMessage consumer
- * only renders stateTransitioned/verificationResult/skillSynthesized today.
- */
-function toAgentEventPayload(event: talon.AgentEvent): AgentEventPayload | undefined {
-  if (event.stateTransitioned) {
-    return { kind: "stateTransitioned", from: event.stateTransitioned.from, to: event.stateTransitioned.to };
-  }
-  if (event.verificationResult) {
-    return {
-      kind: "verificationResult",
-      passed: event.verificationResult.passed,
-      ...(event.verificationResult.reason ? { reason: event.verificationResult.reason } : {}),
-    };
-  }
-  if (event.skillSynthesized) {
-    return {
-      kind: "skillSynthesized",
-      accepted: event.skillSynthesized.accepted,
-      ...(event.skillSynthesized.skillId ? { skillId: event.skillSynthesized.skillId } : {}),
-      ...(event.skillSynthesized.reason ? { reason: event.skillSynthesized.reason } : {}),
-    };
-  }
-  return undefined;
 }
 
 /**

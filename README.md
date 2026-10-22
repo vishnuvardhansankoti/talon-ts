@@ -98,8 +98,10 @@ A `.env.example` at the repo root documents the same table for reference — the
 ```
 pnpm run build   # tsc -b across all packages (via turbo, cached)
 pnpm run lint     # eslint, including the agent-core dependency-boundary rules
-pnpm run test     # jest, across agent-core / agent-tools / agent-providers / agent-memory / agent-skills
+pnpm run test     # jest, across agent-core / agent-tools / agent-providers / agent-memory / agent-skills / desktop
 ```
+
+`apps/mobile` is tested separately (`cd apps/mobile && pnpm run test`) — it needs `jest-expo`'s babel-based transform rather than the `ts-jest` setup everything else shares; see [`apps/mobile/README.md`](apps/mobile/README.md#tests).
 
 ## Packaging the daemon
 

@@ -22,6 +22,14 @@ pnpm --filter @talon/desktop run build
 
 Runs `tsc -b` for the main/preload processes, a separate `tsc -p tsconfig.renderer.json` for the DOM-lib renderer, then copies `index.html`/`styles.css` into `dist/renderer/` (`tsc` only emits `.ts` → `.js`).
 
+## Tests
+
+```
+pnpm test   # from the repo root — runs as the "desktop" jest project alongside packages/*
+```
+
+Covers the two pure, non-Electron-importing pieces: `resolveDaemonConfig()`'s env-var resolution (`src/main/daemon-client.ts`) and `toAgentEventPayload()`'s `AgentEvent` → IPC-payload mapping (`src/main/event-mapping.ts` — split out of `main.ts` specifically so it's importable without pulling in `electron`, since `main.ts`'s module-level `main().catch(...)` calls `app.whenReady()` as a side effect of being imported at all). The rest of `main.ts` (window creation, native dialog, IPC wiring) is Electron-API glue verified by actually running the app, not unit tests.
+
 ## Environment variables
 
 Same set `@talon/cli` reads, resolved the same way (`src/main/daemon-client.ts`'s `resolveDaemonConfig()`) — see [`apps/cli/README.md`](../cli/README.md#environment-variables) for the table. Set them in the shell that launches `electron .`.

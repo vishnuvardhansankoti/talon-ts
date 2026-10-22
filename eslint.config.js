@@ -37,12 +37,12 @@ export default tseslint.config(
     },
   },
   {
-    // Metro/Babel require these two as plain CommonJS — apps/mobile's own
+    // Metro/Babel/Jest require these as plain CommonJS — apps/mobile's own
     // package.json has no "type": "module", so Node (and these tools)
     // already treat them as CJS regardless of the workspace root's own
     // "type": "module"; this override just gives lint the matching
     // globals instead of flagging the CJS syntax those tools mandate.
-    files: ["apps/mobile/babel.config.js", "apps/mobile/metro.config.js"],
+    files: ["apps/mobile/babel.config.js", "apps/mobile/metro.config.js", "apps/mobile/jest.config.js", "apps/mobile/jest.setup.js"],
     languageOptions: {
       sourceType: "commonjs",
       globals: { module: "writable", require: "readonly", __dirname: "readonly" },

@@ -87,6 +87,7 @@ Read by `talond`, `cli`, and `desktop` (not `mobile` — it never talks to `talo
 |---|---|---|
 | `TALON_PROJECT_ROOT` | `process.cwd()` | `talond` — root directory tools and memory operate within; `cli`/`desktop` — passed through when they auto-start talond |
 | `TALON_MODEL` | `qwen2.5:7b-instruct` | `talond` — Ollama model name |
+| `TALON_MODEL_KEEP_ALIVE` | `30m` | `talond` — Ollama's `keep_alive`, how long the model stays loaded between requests |
 | `TALON_SOCKET` | `<project>/.talon/talond.sock` | `talond`, `cli`, and `desktop` — Unix domain socket path they talk over |
 | `TALON_TOOLS_CONFIG` | unset (no config-declared tools) | `talond` — path to a YAML file or directory declaring extra `http`/`exec`/`mcp` tools (see `packages/agent-tools/examples/`), hot-reloaded on change |
 | `TALON_SECRETS_FILE` | unset | `talond` — path to a secrets file `{fromSecret}` references in `TALON_TOOLS_CONFIG` resolve against |

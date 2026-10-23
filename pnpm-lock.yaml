@@ -108,6 +108,9 @@ importers:
       expo-status-bar:
         specifier: ~58.0.3
         version: 58.0.3(expo@58.0.16)(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1))(react@19.3.1)
+      expo-system-ui:
+        specifier: ~58.0.6
+        version: 58.0.6(expo@58.0.16)(react-native-web@0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1))
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -2654,6 +2657,16 @@ packages:
       expo: '*'
       react: '*'
       react-native: '*'
+
+  expo-system-ui@58.0.6:
+    resolution: {integrity: sha512-K1+GIYhNDc4J0lJAL0m8giesP1dgfavhN+joA6FQ45r1FXAWwS1PaueCiCJaq5hB6z5iAYT7b9XqYp76UU65yw==}
+    peerDependencies:
+      expo: '*'
+      react-native: '*'
+      react-native-web: '*'
+    peerDependenciesMeta:
+      react-native-web:
+        optional: true
 
   expo@58.0.16:
     resolution: {integrity: sha512-LnWYyk8tYuXkNh4BSEnRhXXDtfPPJBWXOeyVtlnmRskWEyC641eqH3pDvXuX8NF2a6eg0E+rjRbZ94yO3DeM0g==}
@@ -7757,6 +7770,17 @@ snapshots:
       expo: 58.0.16(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.14)(react-dom@19.3.1(react@19.3.1))(react-native-web@0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1))(react@19.3.1)(typescript@5.9.3)
       react: 19.3.1
       react-native: 0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1)
+
+  expo-system-ui@58.0.6(expo@58.0.16)(react-native-web@0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1)):
+    dependencies:
+      '@react-native/normalize-colors': 0.88.0
+      debug: 4.4.3
+      expo: 58.0.16(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.14)(react-dom@19.3.1(react@19.3.1))(react-native-web@0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1))(react@19.3.1)(typescript@5.9.3)
+      react-native: 0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1)
+    optionalDependencies:
+      react-native-web: 0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+    transitivePeerDependencies:
+      - supports-color
 
   expo@58.0.16(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.14)(react-dom@19.3.1(react@19.3.1))(react-native-web@0.21.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-native@0.88.0(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.1))(react@19.3.1)(typescript@5.9.3):
     dependencies:

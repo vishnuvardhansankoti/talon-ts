@@ -10,10 +10,23 @@ pnpm run start      # expo start — scan the QR code with Expo Go, or launch a 
 pnpm run web        # expo start --web
 ```
 
+### Local builds (no EAS, no Expo account)
+
+`pnpm run start`/`pnpm run web` above run *inside* Expo Go or a browser — fine for iterating on this app's own code, but Expo Go only supports Expo's own curated set of native modules, and can't be used for a real device test of anything beyond that. For an actual native build:
+
+```
+pnpm run run:ios       # expo run:ios     — needs Xcode, macOS only
+pnpm run run:android   # expo run:android — needs Android Studio + SDK
+```
+
+These generate `ios/`/`android/` from `app.json` (`expo prebuild`, run automatically the first time) and build+install locally via your own Xcode/Android Studio — no EAS cloud build, no EAS queue, no Expo account of any kind. `ios/`/`android/` are gitignored and regenerated on demand; this app stays in Expo's **managed** workflow, not bare/ejected — don't hand-edit anything in those directories, it'll be silently discarded on the next prebuild.
+
+EAS (`eas build`/`eas submit`) is still worth using for actual **store submissions** later — free tier covers 15 builds/platform/month and includes App Store/Play Store submission, no paid plan required — but it's optional tooling for that one step, not a dependency of developing or running this app at all. Either way, an Apple Developer Program account ($99/yr) and Google Play Console account ($25 one-time) are unavoidable for store distribution — that's an Apple/Google requirement, identical in any framework (Flutter, bare React Native, etc.), not an Expo-specific cost.
+
 On first launch, the app shows a settings screen to pick a model provider:
 
 - **Gemini** — paste an API key from [Google AI Studio](https://aistudio.google.com/apikey). PRD §1.1: always a user-supplied key talking directly to Google, never a vendor-operated proxy.
-- **Ollama** — "local" here means reachable over the phone's own LAN, not literally on-device (Ollama has no iOS/Android port); enter the base URL of a machine already running it (e.g. your laptop's LAN IP, like `http://192.168.1.50:11434` — never `localhost`) and the model tag to use. Uses `MobileOllamaProvider`, a non-streaming variant of `OllamaProvider` written specifically because Hermes has no `node:stream`/`node:crypto` — see that file's comment, and `gemini-provider.ts`'s, for the same constraint solved the same way for a different vendor.
+- **Ollama** — "local" here means reachable over the phone's own LAN, not literally on-device (Ollama has no iOS/Android port); enter the base URL of a machine already running it (e.g. your laptop's LAN IP, like `http://192.168.1.50:11434` — never `localhost`) and the model tag to use. Uses `MobileOllamaProvider`, a non-streaming variant of `OllamaProvider` written specifically because Hermes has no `node:stream`/`node:crypto` — see that file's comment, and `gemini-provider.ts`'s, for the same constraint solved the same way for a different vendor. Every request sends a fixed 30-minute `keep_alive`, hardcoded (no Settings-screen control) — see `OllamaProvider`'s constructor comment for why that, not an attention KV-cache this package has no handle to at all, is the real lever against a full model-reload cost between turns.
 
 Either way, the choice is stored via `expo-secure-store` (Keychain on iOS, Keystore on Android; `localStorage` only under `expo start --web`, which has no secure-storage backend). Switching providers later (the chat screen's "Change provider" button) requires closing and reopening the app — `AgentSession` wraps one long-lived `AgentLoop` for the app's whole lifetime, with no live teardown/reconnect path, so a provider change only takes effect on the next launch rather than hot-swapping mid-session.
 

@@ -12,6 +12,10 @@ export interface TalondConfig {
   readonly model: string;
   readonly projectRoot: string;
   readonly ollamaBaseUrl?: URL;
+  /** Ollama's `keep_alive` — see OllamaProvider's constructor comment for
+   * why this, not an actual KV-cache, is the real lever this daemon has
+   * over model-reload latency between turns. */
+  readonly ollamaKeepAlive?: string;
   readonly toolsConfigPath?: string;
   readonly secretsPath?: string;
 }
@@ -77,7 +81,7 @@ export async function createTalonDaemonServer(config: TalondConfig): Promise<Tal
     applyConfigReload(configHandle.tools);
   }
 
-  const modelProvider = new OllamaProvider(config.model, config.ollamaBaseUrl);
+  const modelProvider = new OllamaProvider(config.model, config.ollamaBaseUrl, config.ollamaKeepAlive);
   const memoryStore = await MemoryStore.open(config.projectRoot, config.model);
   const skillCatalog = await SkillCatalog.open(config.projectRoot);
   const close = async (): Promise<void> => {

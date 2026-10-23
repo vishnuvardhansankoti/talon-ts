@@ -78,6 +78,32 @@ describe("OllamaProvider", () => {
     ]);
   });
 
+  it("sends keep_alive, defaulting to 30m", async () => {
+    const fetchMock = jest.fn(async () => ndjsonResponse(['{"message":{"role":"assistant","content":""},"done":true}']));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const provider = new OllamaProvider("qwen2.5:7b-instruct");
+    for await (const _ of provider.complete({ messages: [], tools: [] })) {
+      // draining is enough
+    }
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ keep_alive: "30m" });
+  });
+
+  it("sends a configured keep_alive instead of the default", async () => {
+    const fetchMock = jest.fn(async () => ndjsonResponse(['{"message":{"role":"assistant","content":""},"done":true}']));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const provider = new OllamaProvider("qwen2.5:7b-instruct", undefined, "1h");
+    for await (const _ of provider.complete({ messages: [], tools: [] })) {
+      // draining is enough
+    }
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ keep_alive: "1h" });
+  });
+
   it("throws when the HTTP response is not ok", async () => {
     globalThis.fetch = jest.fn(async () => ndjsonResponse([], false)) as unknown as typeof fetch;
     const provider = new OllamaProvider("qwen2.5:7b-instruct");

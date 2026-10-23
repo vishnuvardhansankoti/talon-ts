@@ -40,6 +40,7 @@ All optional — unset means "let `talond` apply its own default." `talon` reads
 |---|---|---|
 | `TALON_PROJECT_ROOT` | `process.cwd()` | Root directory the daemon operates within |
 | `TALON_MODEL` | `qwen2.5:7b-instruct` | Ollama model name |
+| `TALON_MODEL_KEEP_ALIVE` | `30m` | Ollama's `keep_alive`, how long the model stays loaded between requests |
 | `TALON_SOCKET` | `<project>/.talon/talond.sock` | Unix domain socket path |
 | `TALON_TOOLS_CONFIG` | unset | Path to a YAML tools config (see `packages/agent-tools/examples/`) |
 | `TALON_SECRETS_FILE` | unset | Path to a secrets file `{fromSecret}` references resolve against |

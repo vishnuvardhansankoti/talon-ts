@@ -51,6 +51,17 @@ export class OllamaProvider extends ModelProvider {
   constructor(
     private readonly model: string,
     private readonly baseUrl: URL = new URL("http://127.0.0.1:11434"),
+    /**
+     * Ollama's own `keep_alive` request field — how long the model stays
+     * resident in memory after this call before Ollama evicts it (Ollama
+     * defaults to 5m when the field is omitted entirely). There is no
+     * attention KV-cache this package can own or manage directly — that
+     * lives inside Ollama/llama.cpp's own process, never reachable from
+     * here — so this is the actual, real lever available from the client
+     * side: avoid paying a full model-load cost again on the very next
+     * turn of the same conversation.
+     */
+    private readonly keepAlive: string = "30m",
   ) {
     super();
   }
@@ -80,6 +91,7 @@ export class OllamaProvider extends ModelProvider {
       body: JSON.stringify({
         model: this.model,
         stream: true,
+        keep_alive: this.keepAlive,
         messages: toOllamaMessages(request.messages),
         ...(request.tools.length > 0 ? { tools: toOllamaTools(request.tools) } : {}),
       }),

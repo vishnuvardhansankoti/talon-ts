@@ -22,7 +22,7 @@ describe("MobileOllamaProvider", () => {
     expect(await provider.checkHealth()).toBe("daemonUnreachable");
   });
 
-  it("requests stream:false and parses the single non-streamed response into a text chunk + done", async () => {
+  it("requests stream:false and a fixed 30m keep_alive, parsing the single non-streamed response into a text chunk + done", async () => {
     const fetchMock = jest.fn(
       async () => new Response(JSON.stringify({ message: { role: "assistant", content: "Hello world" } }), { status: 200 }),
     );
@@ -36,7 +36,7 @@ describe("MobileOllamaProvider", () => {
 
     expect(chunks).toEqual([{ kind: "text", text: "Hello world" }, { kind: "done" }]);
     const [, requestInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
-    expect(JSON.parse(requestInit.body as string)).toMatchObject({ stream: false });
+    expect(JSON.parse(requestInit.body as string)).toMatchObject({ stream: false, keep_alive: "30m" });
   });
 
   it("parses a tool call from the single response, minting an id via globalThis.crypto when Ollama omits one", async () => {

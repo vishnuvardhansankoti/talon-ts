@@ -12,6 +12,14 @@ interface OllamaChatResponse {
   readonly message?: OllamaChatMessage;
 }
 
+/** Ollama's own `keep_alive` request field — how long the model stays
+ * resident after this call before Ollama evicts it (default 5m when
+ * omitted). No Settings-screen control on mobile — one fixed, sensible
+ * value, matching OllamaProvider's own default; see that file's
+ * constructor comment for why this (not an actual KV-cache, which this
+ * package has no handle to at all) is the real lever available here. */
+const KEEP_ALIVE = "30m";
+
 /**
  * RN/Hermes-safe Ollama client for apps/mobile's "local" tier (PRD §7.2) —
  * "local" here means reachable over the phone's own LAN (e.g. a laptop
@@ -62,6 +70,7 @@ export class MobileOllamaProvider extends ModelProvider {
       body: JSON.stringify({
         model: this.model,
         stream: false,
+        keep_alive: KEEP_ALIVE,
         messages: toOllamaMessages(request.messages),
         ...(request.tools.length > 0 ? { tools: toOllamaTools(request.tools) } : {}),
       }),

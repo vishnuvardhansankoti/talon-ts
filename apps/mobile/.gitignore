@@ -1,0 +1,6 @@
+# `expo run:ios`/`expo run:android` (and `expo prebuild` directly) generate
+# these from app.json on demand — this app stays in Expo's "managed"
+# workflow, not bare/ejected. Regenerate locally with `pnpm run:ios` /
+# `pnpm run:android`; never commit them.
+/ios
+/android

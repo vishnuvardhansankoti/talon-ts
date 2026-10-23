@@ -13,6 +13,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.12.4",
     "@talon/grpc-contracts": "workspace:*",
-    "@talon/talond": "workspace:*"
+    "@talon/talond": "workspace:*",
+    "dotenv": "^18.0.8"
   }
 }

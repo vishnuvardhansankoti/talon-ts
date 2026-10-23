@@ -7,6 +7,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./contract": {
+      "types": "./dist/contract/model-provider.d.ts",
+      "default": "./dist/contract/model-provider.js"
+    },
+    "./gemini-provider": {
+      "types": "./dist/gemini/gemini-provider.d.ts",
+      "default": "./dist/gemini/gemini-provider.js"
+    },
+    "./mobile-ollama-provider": {
+      "types": "./dist/ollama/mobile-ollama-provider.d.ts",
+      "default": "./dist/ollama/mobile-ollama-provider.js"
     }
   },
   "scripts": {

@@ -91,7 +91,7 @@ Read by `talond`, `cli`, and `desktop` (not `mobile` — it never talks to `talo
 | `TALON_TOOLS_CONFIG` | unset (no config-declared tools) | `talond` — path to a YAML file or directory declaring extra `http`/`exec`/`mcp` tools (see `packages/agent-tools/examples/`), hot-reloaded on change |
 | `TALON_SECRETS_FILE` | unset | `talond` — path to a secrets file `{fromSecret}` references in `TALON_TOOLS_CONFIG` resolve against |
 
-A `.env.example` at the repo root documents the same table for reference — there's no dotenv loader wired up, so export these in your shell rather than expecting the file to be picked up automatically.
+A `.env.example` at the repo root (and one per app under `apps/*/`) documents the same table for reference. Each of `cli`/`talond`/`desktop` auto-loads a `.env` file via `dotenv` from the *project* it's operating on (`TALON_PROJECT_ROOT` if set, else `process.cwd()`) before resolving anything else from the environment — copy the example to `.env` in that directory, or just export values directly; a real shell export always wins over the file.
 
 ## Development
 

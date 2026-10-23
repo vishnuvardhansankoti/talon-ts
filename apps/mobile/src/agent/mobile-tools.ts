@@ -105,6 +105,84 @@ const fsListDirTool: MobileTool = {
   },
 };
 
+interface TavilySearchResult {
+  readonly title: string;
+  readonly url: string;
+  readonly content: string;
+}
+
+interface TavilySearchResponse {
+  readonly results?: readonly TavilySearchResult[];
+  readonly answer?: string;
+}
+
+/**
+ * The desktop/talond equivalent (docs/architecture/yaml-tool-config.md,
+ * packages/agent-tools/examples/tools.example.yaml's "websearch" entry)
+ * spawns Tavily's official MCP server as a local stdio process. That's not
+ * an option here — Hermes has no `node:child_process`, so there's nothing
+ * to spawn — and pulling in `@modelcontextprotocol/sdk`'s full client just
+ * to drive Tavily's *hosted* HTTP MCP endpoint would be a lot of protocol
+ * machinery for one tool. Tavily's plain REST `/search` endpoint
+ * (https://docs.tavily.com/documentation/api-reference/endpoint/search)
+ * does the same job as a single `fetch()` call, matching every other
+ * mobile-only tool/provider in this app (no Node dependency, ever).
+ *
+ * A factory (not a static const like the three tools above) because it
+ * needs a per-session API key — see this file's only caller,
+ * agent-session.ts, which only includes it in the registry at all when a
+ * key is actually configured (src/settings/tavily-settings.ts).
+ */
+export function createWebSearchTool(apiKey: string): MobileTool {
+  return {
+    id: "web.search",
+    description: "Search the web for current information and return the top matching results.",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+    // Read-only from the user's perspective (no state mutation, nothing
+    // destructive) but sends the query text to a third-party service —
+    // unlike device.info/fs.*, which never leave the sandbox. Floored one
+    // tier above those, matching how a config-declared `http` GET entry
+    // floors at heuristicSandboxed rather than safeReadOnly (design doc
+    // §3) for the same reason: it's a network call, not a local read.
+    safetyTier: "heuristicSandboxed",
+    async execute(input) {
+      const query = input["query"];
+      if (typeof query !== "string" || query.trim().length === 0) {
+        return { success: false, errorCode: "TOOL_VALIDATION_FAILED", errorMessage: '"query" must be a non-empty string' };
+      }
+
+      let res: Response;
+      try {
+        res = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ query }),
+        });
+      } catch (error) {
+        return { success: false, errorCode: "TOOL_EXECUTION_FAILED", errorMessage: error instanceof Error ? error.message : String(error) };
+      }
+
+      if (!res.ok) {
+        return { success: false, errorCode: "TOOL_EXECUTION_FAILED", errorMessage: `tavily search failed: ${res.status} ${res.statusText}` };
+      }
+
+      const body = (await res.json()) as TavilySearchResponse;
+      const results = (body.results ?? []).map(({ title, url, content }) => ({ title, url, content }));
+      return { success: true, output: { ...(body.answer !== undefined ? { answer: body.answer } : {}), results } };
+    },
+  };
+}
+
+/** The tools registered regardless of settings — agent-session.ts appends
+ * `createWebSearchTool(apiKey)` to this list itself, only when a Tavily
+ * key is actually configured, rather than this file reaching into
+ * settings storage to decide that on its own. */
+export const DEFAULT_MOBILE_TOOLS: readonly MobileTool[] = [deviceInfoTool, fsReadFileTool, fsListDirTool];
+
 /**
  * Structurally satisfies agent-core's ToolRegistryPort, same as
  * @talon/agent-tools's own ToolRegistry does for desktop/talond — written
@@ -116,7 +194,7 @@ const fsListDirTool: MobileTool = {
 export class MobileToolRegistry implements ToolRegistryPort {
   private readonly tools: ReadonlyMap<string, MobileTool>;
 
-  constructor(tools: readonly MobileTool[] = [deviceInfoTool, fsReadFileTool, fsListDirTool]) {
+  constructor(tools: readonly MobileTool[] = DEFAULT_MOBILE_TOOLS) {
     this.tools = new Map(tools.map((tool) => [tool.id, tool]));
   }
 

@@ -4,33 +4,16 @@ import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import {
   ModelProvider,
   type CompletionChunk,
-  type CompletionRequest,
-  type Message,
   type ProviderCapabilities,
   type ProviderHealth,
   type ProviderLocality,
-  type ToolSchema,
+  type CompletionRequest,
 } from "../contract/model-provider.js";
-
-interface OllamaToolCall {
-  readonly id?: string;
-  readonly function: { readonly name: string; readonly arguments: Record<string, unknown> };
-}
+import { toCompletionChunks, toOllamaMessages, toOllamaTools, type OllamaChatMessage } from "./ollama-wire.js";
 
 interface OllamaChatLine {
-  readonly message?: { readonly content?: string; readonly tool_calls?: readonly OllamaToolCall[] };
+  readonly message?: OllamaChatMessage;
   readonly done: boolean;
-}
-
-function toOllamaMessages(messages: readonly Message[]): object[] {
-  return messages.map((m) => ({ role: m.role, content: m.content }));
-}
-
-function toOllamaTools(tools: readonly ToolSchema[]): object[] {
-  return tools.map((t) => ({
-    type: "function",
-    function: { name: t.id, description: t.description, parameters: t.inputSchema },
-  }));
 }
 
 /** Splits a byte stream into trimmed, non-empty NDJSON lines. */
@@ -51,23 +34,10 @@ async function* parseNdjsonLines(stream: AsyncIterable<Uint8Array>): AsyncIterab
   if (rest.length > 0) yield rest;
 }
 
-async function* toCompletionChunks(lines: AsyncIterable<string>): AsyncIterable<CompletionChunk> {
+async function* toStreamedCompletionChunks(lines: AsyncIterable<string>): AsyncIterable<CompletionChunk> {
   for await (const line of lines) {
     const parsed = JSON.parse(line) as OllamaChatLine;
-    const content = parsed.message?.content ?? "";
-    if (content.length > 0) {
-      yield { kind: "text", text: content };
-    }
-    for (const toolCall of parsed.message?.tool_calls ?? []) {
-      yield {
-        kind: "toolCall",
-        call: {
-          id: toolCall.id ?? randomUUID(),
-          toolId: toolCall.function.name,
-          input: toolCall.function.arguments,
-        },
-      };
-    }
+    yield* toCompletionChunks(parsed.message, randomUUID);
     if (parsed.done) {
       yield { kind: "done" };
     }
@@ -120,6 +90,6 @@ export class OllamaProvider extends ModelProvider {
     }
 
     const nodeStream = Readable.fromWeb(res.body as NodeWebReadableStream<Uint8Array>);
-    yield* toCompletionChunks(parseNdjsonLines(nodeStream));
+    yield* toStreamedCompletionChunks(parseNdjsonLines(nodeStream));
   }
 }

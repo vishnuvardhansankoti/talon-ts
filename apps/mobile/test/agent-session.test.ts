@@ -49,7 +49,11 @@ describe("AgentSession", () => {
     const onError = jest.fn();
     const requestInlineApproval = jest.fn<() => Promise<ApprovalDecisionPort>>();
 
-    const session = new AgentSession("fake-api-key", { onOutput, onEvent, onError, requestInlineApproval });
+    const session = new AgentSession(
+      { provider: "gemini", apiKey: "fake-api-key" },
+      undefined,
+      { onOutput, onEvent, onError, requestInlineApproval },
+    );
     session.start();
 
     session.sendMessage("hello");
@@ -74,11 +78,15 @@ describe("AgentSession", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const onError = jest.fn();
 
-    const session = new AgentSession("fake-api-key", {
-      onOutput: jest.fn(),
-      onError,
-      requestInlineApproval: jest.fn<() => Promise<ApprovalDecisionPort>>(),
-    });
+    const session = new AgentSession(
+      { provider: "gemini", apiKey: "fake-api-key" },
+      undefined,
+      {
+        onOutput: jest.fn(),
+        onError,
+        requestInlineApproval: jest.fn<() => Promise<ApprovalDecisionPort>>(),
+      },
+    );
     session.start();
     session.start();
 

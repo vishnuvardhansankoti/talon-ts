@@ -29,5 +29,7 @@ export default {
     esmTsProject("agent-tools", "packages/agent-tools"),
     esmTsProject("agent-providers", "packages/agent-providers"),
     esmTsProject("desktop", "apps/desktop"),
+    esmTsProject("cli", "apps/cli"),
+    esmTsProject("talond", "apps/talond"),
   ],
 };

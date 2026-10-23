@@ -59,6 +59,17 @@ tools:
     command: ["npx", "-y", "@figma/mcp-server"]
     # every tool the server reports via tools/list is registered as
     # "figma.<serverToolName>", e.g. "figma.get_file"
+
+  - kind: mcp
+    id: websearch
+    transport: stdio
+    command: ["npx", "-y", "tavily-mcp@latest"]
+    # "env" sets variables on the *spawned* process — here, the var
+    # tavily-mcp itself reads for auth. Resolved the same {fromEnv}/
+    # {fromSecret} way as an "http" entry's headers (only valid for
+    # transport: "stdio"; a connect-time error for transport: "http").
+    env:
+      TAVILY_API_KEY: { fromEnv: TAVILY_API_KEY }
 ```
 
 `inputSchema` is plain JSON Schema (draft 2020-12, per the existing `ToolDefinition.inputSchema` contract), authored directly as YAML — no new schema language, since YAML is a structural superset of JSON for this purpose. `mcp` entries don't declare `inputSchema`/`description` themselves; those come from the server's own `tools/list` response.
@@ -177,7 +188,7 @@ export interface SecretRef {
 }
 ```
 
-usable anywhere `{fromEnv}` is (today: `http` entries' `headers`). The backing store is deliberately minimal — a flat YAML/JSON mapping of secret name to string value, loaded once per `loadToolsFromYaml`/`watchToolsFromYaml` call via a `secretsPath` argument:
+usable anywhere `{fromEnv}` is (today: `http` entries' `headers` and `mcp` stdio entries' `env`). The backing store is deliberately minimal — a flat YAML/JSON mapping of secret name to string value, loaded once per `loadToolsFromYaml`/`watchToolsFromYaml` call via a `secretsPath` argument:
 
 ```yaml
 # secrets.yaml

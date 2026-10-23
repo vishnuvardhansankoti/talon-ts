@@ -1,20 +1,25 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import * as readline from "node:readline";
 import * as grpc from "@grpc/grpc-js";
 import { talon } from "@talon/grpc-contracts";
+import { config as loadDotenv } from "dotenv";
+import { resolveCliConfig } from "../cli-config.js";
 
 const require = createRequire(import.meta.url);
 
-const projectRoot = process.env["TALON_PROJECT_ROOT"] ?? process.cwd();
-const model = process.env["TALON_MODEL"]; // undefined means "let talond apply its own default"
-const toolsConfigPath = process.env["TALON_TOOLS_CONFIG"]; // undefined means "no config-declared tools"
-const secretsPath = process.env["TALON_SECRETS_FILE"]; // undefined means "no secrets file configured"
-const socketPath = process.env["TALON_SOCKET"] ?? path.join(projectRoot, ".talon", "talond.sock");
-const address = `unix://${socketPath}`;
+// Loaded from the *project* talon is operating on (same place tools.yaml's
+// own convention puts <project>/.talon/, not apps/cli's own location in
+// this monorepo) — resolveCliConfig() reads TALON_PROJECT_ROOT, so this has
+// to mirror its exact default (unset -> cwd) and run before that call.
+// Never overwrites a var already exported in the real shell environment —
+// that always wins over whatever's in the file (dotenv's default).
+loadDotenv({ path: path.join(process.env["TALON_PROJECT_ROOT"] ?? process.cwd(), ".env"), quiet: true });
+
+const { projectRoot, model, toolsConfigPath, secretsPath, socketPath, address } = resolveCliConfig();
 
 const client = new talon.TalonDaemonClient(address, grpc.credentials.createInsecure());
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -75,10 +80,19 @@ function checkHealthOnce(timeoutMs: number): Promise<boolean> {
 }
 
 /**
+ * Set only when *this* invocation spawns talond — never when it attaches to
+ * one that was already running. Killed on this process's own exit (below),
+ * so a quick `talon` run doesn't leave a daemon behind holding onto
+ * now-stale env vars (e.g. an edited tools.yaml/TAVILY_API_KEY from a
+ * previous run); a talond this invocation merely reused — e.g. one
+ * apps/desktop is also attached to — is left alone.
+ */
+let spawnedTalond: ChildProcess | undefined;
+
+/**
  * `talon` is meant to be a single command — no separately running talond
- * expected. If the daemon for this project isn't already up, spawn it
- * detached (so it outlives this CLI process, per PRD §1.3/§1.4) and poll
- * until it's reachable.
+ * expected. If the daemon for this project isn't already up, spawn it and
+ * poll until it's reachable.
  */
 async function ensureTalondRunning(): Promise<void> {
   if (await checkHealthOnce(500)) return;
@@ -106,14 +120,37 @@ async function ensureTalondRunning(): Promise<void> {
     },
   );
   child.unref();
+  spawnedTalond = child;
 
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    if (await checkHealthOnce(500)) return;
+    if (await checkHealthOnce(500)) {
+      console.error("talond is ready.");
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error(`talond did not become ready at ${address} within 15s`);
 }
+
+/** SIGTERM (not -9) so talond's own shutdown() handler gets to run — close()
+ * on agent-memory's SQLite handle and any mcp stdio children, then unlink
+ * the socket — rather than leaving those half-torn-down. */
+function killSpawnedTalond(): void {
+  if (spawnedTalond?.pid !== undefined && spawnedTalond.exitCode === null) {
+    spawnedTalond.kill("SIGTERM");
+  }
+}
+
+process.on("exit", killSpawnedTalond);
+process.on("SIGINT", () => {
+  killSpawnedTalond();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  killSpawnedTalond();
+  process.exit(143);
+});
 
 async function main(): Promise<void> {
   await ensureTalondRunning();

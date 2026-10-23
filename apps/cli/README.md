@@ -16,7 +16,7 @@ or, once built, directly:
 node apps/cli/dist/bin/talon.js
 ```
 
-If `talond` isn't already running for the current project, `talon` spawns it detached and polls until it's ready (15s budget) before starting your session — there's nothing to start by hand. A second `talon` invocation in the same directory finds the already-running daemon and reconnects instead of spawning another.
+If `talond` isn't already running for the current project, `talon` spawns it and polls until it's ready (15s budget) before starting your session — there's nothing to start by hand. A second `talon` invocation in the same directory finds the already-running daemon and reconnects instead of spawning another, and won't kill it on exit (only the invocation that actually spawned it does) — so one `talon` session running alongside e.g. `apps/desktop` on the same project won't yank the daemon out from under the other. The one that *did* spawn it kills it (`SIGTERM`, letting `talond` shut down cleanly) when that `talon` process exits, so a relaunch always gets a daemon that's seen your current env vars rather than reusing a stale one.
 
 Type a message and press enter. Safe tools run without asking; anything that reaches `PRE_APPROVAL` prints the proposed call and tier, then waits for `y`/`N`.
 

@@ -3,13 +3,13 @@ import type { ToolSafetyTier } from "../base/tool-definition.js";
 /** A value an `http`/`exec` entry binds from the model's validated tool-call input. */
 export type InputRef = { readonly fromInput: string };
 
-/** A value an `http` entry binds from an environment variable, never a literal secret. */
+/** A value an `http`/`mcp` entry binds from an environment variable, never a literal secret. */
 export interface EnvRef {
   readonly fromEnv: string;
   readonly prefix?: string;
 }
 
-/** A value an `http` entry binds from the configured secrets file (§7
+/** A value an `http`/`mcp` entry binds from the configured secrets file (§7
  * follow-up: a dedicated store for cases where env vars are awkward,
  * e.g. many entries sharing one credential). Never a literal secret. */
 export interface SecretRef {
@@ -57,6 +57,10 @@ export interface McpToolEntry {
   readonly command?: readonly string[];
   /** Required for `transport: "http"`. */
   readonly url?: string;
+  /** Env vars to set on the spawned stdio process (e.g. an API key the
+   * server itself reads from its environment, like `TAVILY_API_KEY`) —
+   * only meaningful for `transport: "stdio"`. */
+  readonly env?: Readonly<Record<string, TemplateValue | EnvRef | SecretRef>>;
 }
 
 export type ToolConfigEntry = HttpToolEntry | ExecToolEntry | McpToolEntry;

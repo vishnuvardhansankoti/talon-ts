@@ -19,6 +19,7 @@
     "@talon/agent-providers": "workspace:*",
     "@talon/agent-skills": "workspace:*",
     "@talon/agent-tools": "workspace:*",
-    "@talon/grpc-contracts": "workspace:*"
+    "@talon/grpc-contracts": "workspace:*",
+    "dotenv": "^18.0.8"
   }
 }

@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { talon } from "@talon/grpc-contracts";
+import { config as loadDotenv } from "dotenv";
 import { connectToTalond, type DaemonSession } from "./daemon-client.js";
 import { toAgentEventPayload } from "./event-mapping.js";
 import {
@@ -14,6 +15,13 @@ import {
 } from "../shared/ipc-channels.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Loaded from the project this app is operating on — daemon-client.ts's
+// resolveDaemonConfig() reads TALON_PROJECT_ROOT, so this has to mirror its
+// exact default (unset -> cwd) and run before connectToTalond() calls that.
+// Never overwrites a var already exported in the real environment — that
+// always wins over whatever's in the file (dotenv's default).
+loadDotenv({ path: path.join(process.env["TALON_PROJECT_ROOT"] ?? process.cwd(), ".env"), quiet: true });
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -149,6 +157,20 @@ async function main(): Promise<void> {
   try {
     const session = await connectToTalond(onStatus);
     wireSession(win, session);
+    // Only kills a talond this session actually spawned (DaemonSession.
+    // spawnedTalond is unset when an already-running one — e.g. one
+    // apps/cli is also attached to — was reused instead) — SIGTERM, not
+    // -9, so talond's own shutdown() handler gets to run. Otherwise a
+    // relaunch would keep reusing a daemon holding onto now-stale env vars
+    // from a previous run (the exact bug a stale talond caused here).
+    // Ending the stream first lets server.tryShutdown() see this call
+    // close immediately, rather than waiting on the OS to notice this
+    // process's fds going away once Electron actually exits.
+    app.on("before-quit", () => {
+      if (session.spawnedTalond === undefined) return;
+      session.call.end();
+      session.spawnedTalond.kill("SIGTERM");
+    });
   } catch (error: unknown) {
     onStatus({ phase: "error", message: error instanceof Error ? error.message : String(error) });
   }

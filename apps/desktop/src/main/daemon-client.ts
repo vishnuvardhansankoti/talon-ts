@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -47,9 +47,18 @@ function checkHealthOnce(client: talon.TalonDaemonClient, timeoutMs: number): Pr
  * second (not third) place this logic lives, and the two callers differ in
  * how they report progress (stderr lines vs. an IPC status event) — not
  * worth a cross-app package for two call sites yet (phase-1.md §8 pattern).
+ *
+ * Returns the spawned child only when this call actually started one —
+ * `undefined` means an already-running talond (e.g. one apps/cli is also
+ * attached to) was reused and should be left alone. The caller kills it on
+ * app quit (see main.ts) so a relaunch doesn't inherit a daemon holding
+ * onto now-stale env vars from a previous run.
  */
-export async function ensureTalondRunning(config: DaemonConfig, client: talon.TalonDaemonClient): Promise<void> {
-  if (await checkHealthOnce(client, 500)) return;
+export async function ensureTalondRunning(
+  config: DaemonConfig,
+  client: talon.TalonDaemonClient,
+): Promise<ChildProcess | undefined> {
+  if (await checkHealthOnce(client, 500)) return undefined;
 
   mkdirSync(path.dirname(config.socketPath), { recursive: true });
 
@@ -95,7 +104,7 @@ export async function ensureTalondRunning(config: DaemonConfig, client: talon.Ta
 
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    if (await checkHealthOnce(client, 500)) return;
+    if (await checkHealthOnce(client, 500)) return child;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error(`talond did not become ready at unix://${config.socketPath} within 15s`);
@@ -104,6 +113,9 @@ export async function ensureTalondRunning(config: DaemonConfig, client: talon.Ta
 export interface DaemonSession {
   readonly client: talon.TalonDaemonClient;
   readonly call: grpc.ClientDuplexStream<talon.ClientMessage, talon.ServerMessage>;
+  /** Only set when this session's connectToTalond() call spawned talond
+   * itself — see ensureTalondRunning's doc comment. */
+  readonly spawnedTalond?: ChildProcess;
 }
 
 export async function connectToTalond(onStatus: (status: ConnectionStatus) => void): Promise<DaemonSession> {
@@ -112,7 +124,7 @@ export async function connectToTalond(onStatus: (status: ConnectionStatus) => vo
   const client = new talon.TalonDaemonClient(address, grpc.credentials.createInsecure());
 
   onStatus({ phase: "starting-daemon" });
-  await ensureTalondRunning(config, client);
+  const spawnedTalond = await ensureTalondRunning(config, client);
 
   onStatus({ phase: "connecting" });
   const health = await new Promise<talon.HealthResponse>((resolve, reject) => {
@@ -121,5 +133,5 @@ export async function connectToTalond(onStatus: (status: ConnectionStatus) => vo
 
   const call = client.streamSession();
   onStatus({ phase: "ready", providerStatus: health.status });
-  return { client, call };
+  return { client, call, ...(spawnedTalond !== undefined ? { spawnedTalond } : {}) };
 }

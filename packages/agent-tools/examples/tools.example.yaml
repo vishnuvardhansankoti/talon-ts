@@ -95,6 +95,19 @@ tools:
     transport: stdio
     command: ["npx", "-y", "@figma/mcp-server"]
 
+  # Web search, via Tavily's official MCP server — no custom server
+  # needed, just spawn the published package. "env" sets variables on the
+  # *spawned* process (here, the env var tavily-mcp itself reads for
+  # auth), resolved the same {fromEnv}/{fromSecret} way as an "http"
+  # entry's headers; a literal string is also allowed for a non-secret
+  # value. Registers as "websearch.tavily_search"/"websearch.tavily_extract".
+  - kind: mcp
+    id: websearch
+    transport: stdio
+    command: ["npx", "-y", "tavily-mcp@latest"]
+    env:
+      TAVILY_API_KEY: { fromEnv: TAVILY_API_KEY }
+
   # --- kind: mcp (http) ---------------------------------------------------
   - kind: mcp
     id: linear

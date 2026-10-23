@@ -70,6 +70,26 @@ describe("parseToolConfigFile", () => {
     );
   });
 
+  it("parses an mcp stdio entry's env as a mix of literal/fromEnv/fromSecret bindings", () => {
+    const entry = {
+      ...validMcpStdio,
+      env: { TAVILY_API_KEY: { fromSecret: "TAVILY_API_KEY" }, MODE: "search", RAW: { fromEnv: "SOME_VAR" } },
+    };
+    const [parsed] = parseToolConfigFile({ tools: [entry] }, "tools.yaml");
+    expect(parsed).toMatchObject({
+      env: { TAVILY_API_KEY: { fromSecret: "TAVILY_API_KEY" }, MODE: "search", RAW: { fromEnv: "SOME_VAR" } },
+    });
+  });
+
+  it("rejects an mcp stdio entry whose env is not an object", () => {
+    expect(() => parseToolConfigFile({ tools: [{ ...validMcpStdio, env: "nope" }] }, "tools.yaml")).toThrow(/"env"/);
+  });
+
+  it("rejects env on an mcp http entry", () => {
+    const entry = { kind: "mcp", id: "linear", transport: "http", url: "https://mcp.linear.app/mcp", env: {} };
+    expect(() => parseToolConfigFile({ tools: [entry] }, "tools.yaml")).toThrow(/"env" is only valid for transport "stdio"/);
+  });
+
   it("names the offending entry's file and index in the error message", () => {
     try {
       parseToolConfigFile({ tools: [validHttp, { kind: "bogus" }] }, "tools.yaml");

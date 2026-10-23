@@ -200,9 +200,23 @@ function parseMcpEntry(raw: Record<string, unknown>, filePath: string, index: nu
       fail(filePath, index, '"command" must be a non-empty array of strings for transport "stdio"');
     }
     const command = commandRaw.map((v, i) => requireString(v, `command[${i}]`, filePath, index));
-    return { kind: "mcp", id, transport: "stdio", command };
+
+    const envRaw = raw["env"];
+    let env: Record<string, TemplateValue | EnvRef | SecretRef> | undefined;
+    if (envRaw !== undefined) {
+      if (!isRecord(envRaw)) fail(filePath, index, '"env" must be an object');
+      env = {};
+      for (const [key, value] of Object.entries(envRaw)) {
+        env[key] = parseHeaderValue(value, `env.${key}`, filePath, index);
+      }
+    }
+
+    return { kind: "mcp", id, transport: "stdio", command, ...(env !== undefined ? { env } : {}) };
   }
 
+  if (raw["env"] !== undefined) {
+    fail(filePath, index, '"env" is only valid for transport "stdio"');
+  }
   const url = requireString(raw["url"], "url", filePath, index);
   return { kind: "mcp", id, transport: "http", url };
 }

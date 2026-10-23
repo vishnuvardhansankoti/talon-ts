@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
 jest.mock("react-native", () => ({ Platform: { OS: "ios", Version: "18.0" } }));
 
@@ -27,7 +27,7 @@ jest.mock("expo-file-system", () => {
   return { File, Directory, Paths: { document: new Directory() } };
 });
 
-import { MobileToolRegistry } from "../src/agent/mobile-tools";
+import { createWebSearchTool, MobileToolRegistry } from "../src/agent/mobile-tools";
 
 const ctx = { sessionId: "test", cancellation: new AbortController().signal };
 
@@ -113,5 +113,84 @@ describe("MobileToolRegistry", () => {
       const result = await registry.execute("fs.list_dir", { path: "." }, ctx);
       expect(result).toEqual({ success: true, output: ["a.txt", "b.txt"] });
     });
+  });
+});
+
+describe("createWebSearchTool", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("is heuristicSandboxed, not safeReadOnly — it sends the query to a third party", () => {
+    expect(createWebSearchTool("tvly-fake").safetyTier).toBe("heuristicSandboxed");
+  });
+
+  it("rejects a missing or empty query before ever calling fetch", async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const tool = createWebSearchTool("tvly-fake");
+
+    expect(await tool.execute({})).toMatchObject({ errorCode: "TOOL_VALIDATION_FAILED" });
+    expect(await tool.execute({ query: "  " })).toMatchObject({ errorCode: "TOOL_VALIDATION_FAILED" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("POSTs to Tavily's REST /search with a Bearer auth header, returning answer + trimmed results", async () => {
+    const fetchMock = jest.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            answer: "It's sunny.",
+            results: [{ title: "Weather", url: "https://example.com/weather", content: "Sunny, 72F", score: 0.9, extra: "dropped" }],
+          }),
+          { status: 200 },
+        ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const tool = createWebSearchTool("tvly-fake-key");
+    const result = await tool.execute({ query: "weather today" });
+
+    expect(result).toEqual({
+      success: true,
+      output: { answer: "It's sunny.", results: [{ title: "Weather", url: "https://example.com/weather", content: "Sunny, 72F" }] },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.tavily.com/search");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["authorization"]).toBe("Bearer tvly-fake-key");
+    expect(JSON.parse(init.body as string)).toEqual({ query: "weather today" });
+  });
+
+  it("omits 'answer' from output when Tavily doesn't return one", async () => {
+    globalThis.fetch = jest.fn(
+      async () => new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await createWebSearchTool("tvly-fake").execute({ query: "x" });
+    expect(result).toEqual({ success: true, output: { results: [] } });
+  });
+
+  it("reports a clear error on a non-2xx response", async () => {
+    globalThis.fetch = jest.fn(async () => new Response("", { status: 401, statusText: "Unauthorized" })) as unknown as typeof fetch;
+
+    const result = await createWebSearchTool("tvly-bad-key").execute({ query: "x" });
+    expect(result).toEqual({
+      success: false,
+      errorCode: "TOOL_EXECUTION_FAILED",
+      errorMessage: "tavily search failed: 401 Unauthorized",
+    });
+  });
+
+  it("reports a clear error when fetch itself throws (e.g. offline)", async () => {
+    globalThis.fetch = jest.fn(async () => {
+      throw new Error("Network request failed");
+    }) as unknown as typeof fetch;
+
+    const result = await createWebSearchTool("tvly-fake").execute({ query: "x" });
+    expect(result).toEqual({ success: false, errorCode: "TOOL_EXECUTION_FAILED", errorMessage: "Network request failed" });
   });
 });

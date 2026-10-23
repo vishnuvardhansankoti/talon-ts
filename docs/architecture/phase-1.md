@@ -38,7 +38,7 @@ graph LR
     PROVIDER -->|"HTTP, streaming NDJSON"| API
 ```
 
-`talond` is the only process that ever runs `agent-core`'s loop. The CLI holds no agent state — it's a transport + terminal UI. This is deliberate (PRD §1.3/§1.4): the daemon can outlive any particular client and is what later phases' CLI-attach and remote-computer features build on.
+`talond` is the only process that ever runs `agent-core`'s loop. The CLI holds no agent state — it's a transport + terminal UI. This is deliberate (PRD §1.3/§1.4): the daemon can be shared across concurrent clients — a `talon` session and `apps/desktop` can both attach to the same project's daemon at once — and is what later phases' CLI-attach and remote-computer features build on. It's *not* the case, however, that the daemon unconditionally outlives every client: whichever client actually spawned it (§4 below) also kills it (`SIGTERM`) on its own exit, so a relaunch after an env-var/config change always gets a daemon that's seen the new values rather than silently reusing a stale one. A client that merely *attached* to an already-running daemon never kills it — only the one that spawned it does.
 
 ## 2. Package map & the dependency-inversion fix
 
@@ -125,7 +125,9 @@ A second, related bug surfaced by actually testing the cold-start path (below): 
 
 ### 4.1 `talon` is a single command — daemon auto-start
 
-The CLI never assumes a separately-running `talond`. On startup it calls `CheckHealth`; if that fails, it resolves `@talon/talond`'s installed location via `createRequire(...).resolve("@talon/talond/package.json")` (a real workspace dependency of `@talon/cli`, used only for this path resolution — the CLI still holds no agent state), spawns `node .../dist/main.js` **detached** so the daemon outlives the CLI process, and polls `CheckHealth` until it's ready (15s budget) before proceeding. A second `talon` invocation in the same project finds the already-running daemon and skips straight past this.
+The CLI never assumes a separately-running `talond`. On startup it calls `CheckHealth`; if that fails, it resolves `@talon/talond`'s installed location via `createRequire(...).resolve("@talon/talond/package.json")` (a real workspace dependency of `@talon/cli`, used only for this path resolution — the CLI still holds no agent state), spawns `node .../dist/main.js` **detached**, and polls `CheckHealth` until it's ready (15s budget) before proceeding. A second `talon` invocation in the same project finds the already-running daemon and skips straight past this — and, having not spawned it, won't kill it either.
+
+The invocation that *did* spawn it, though, ties the daemon's lifetime to its own: `process.on("exit"/"SIGINT"/"SIGTERM", ...)` sends the spawned child `SIGTERM` (letting `talond`'s own `shutdown()` run — closing the memory store and any `mcp` stdio children, unlinking the socket — rather than leaving those half-torn-down) before this process exits. Found by actually hitting it: a `talond` left running from an earlier session doesn't see env vars (`TALON_TOOLS_CONFIG`, a newly-added `TAVILY_API_KEY`, etc.) exported *after* it started — the socket health-checks fine, so a later `talon`/`apps/desktop` launch silently reuses the stale process instead of picking up the new config. `detached` is kept (so a `SIGHUP` from the terminal session closing doesn't take a *reused* daemon down with it) — only this explicit exit handling controls whether a *spawned* one dies.
 
 The default socket path changed from a single global `/tmp/talond.sock` to `<project>/.talon/talond.sock`, computed identically by both `talond` and `cli` from `TALON_PROJECT_ROOT`/`process.cwd()`. A global path would make every project share one daemon — the first one to start would silently pin every later `talon` invocation, in any directory, to its project root. Per-project sockets make each directory's daemon independent, which is what auto-start actually needs to be safe to do without asking.
 

@@ -9,10 +9,16 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.talon.mobile",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
-      "package": "com.talon.mobile"
+      "package": "com.talon.mobile",
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro"

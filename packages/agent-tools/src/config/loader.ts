@@ -45,7 +45,8 @@ export async function resolveConfigFiles(configPath: string): Promise<string[]> 
  * layer calls it once, on shutdown.
  *
  * `secretsPath`, if given, is loaded once and threaded into every `http`
- * entry's `{fromSecret}` resolution for this load (§7 follow-up).
+ * entry's `{fromSecret}` resolution and every `mcp` stdio entry's `env`
+ * resolution for this load (§7 follow-up).
  */
 export async function loadToolsFromYaml(
   configPath: string,
@@ -81,7 +82,7 @@ export async function loadToolsFromYaml(
           tools.push(new ConfigExecTool(entry, projectRoot));
           break;
         case "mcp": {
-          const connection = await connectMcpEntry(entry);
+          const connection = await connectMcpEntry(entry, secrets);
           tools.push(...connection.tools);
           closers.push(connection.close);
           break;

@@ -23,7 +23,7 @@ export interface TalonDaemonServerHandle {
   close(): Promise<void>;
 }
 
-function toServerMessage(event: AgentEvent): talon.ServerMessage {
+export function toServerMessage(event: AgentEvent): talon.ServerMessage {
   switch (event.kind) {
     case "StateTransitioned":
       return talon.ServerMessage.fromPartial({

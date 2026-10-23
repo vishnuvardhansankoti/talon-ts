@@ -1,17 +1,17 @@
 import type { AgentEvent, ApprovalDecisionPort, ChannelOutput, ProposedToolCall } from "@talon/agent-core";
 import { useEffect, useRef, useState } from "react";
-import {
-  Button,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Button, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AgentSession } from "./src/agent/agent-session";
-import { loadApiKey, saveApiKey } from "./src/settings/api-key-store";
+import {
+  isValidOllamaBaseUrl,
+  loadProviderSettings,
+  saveProviderSettings,
+  type ProviderSettings,
+} from "./src/settings/provider-settings";
+import { loadTavilyApiKey, saveTavilyApiKey } from "./src/settings/tavily-settings";
+
+const DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct";
 
 type TranscriptEntry =
   | { readonly kind: "user" | "assistant"; readonly text: string }
@@ -36,38 +36,125 @@ function describeEvent(event: AgentEvent): string | undefined {
   }
 }
 
-function ApiKeyPrompt({ onSaved }: { readonly onSaved: (apiKey: string) => void }): React.JSX.Element {
-  const [value, setValue] = useState("");
+function SettingsScreen({
+  initial,
+  initialTavilyKey,
+  onSaved,
+  onCancel,
+}: {
+  readonly initial: ProviderSettings | null;
+  readonly initialTavilyKey: string | null;
+  readonly onSaved: (settings: ProviderSettings, tavilyApiKey: string | null) => void;
+  readonly onCancel?: () => void;
+}): React.JSX.Element {
+  const [kind, setKind] = useState<ProviderSettings["provider"]>(initial?.provider ?? "gemini");
+  const [apiKey, setApiKey] = useState(initial?.provider === "gemini" ? initial.apiKey : "");
+  const [baseUrl, setBaseUrl] = useState(initial?.provider === "ollama" ? initial.baseUrl : "http://");
+  const [model, setModel] = useState(initial?.provider === "ollama" ? initial.model : DEFAULT_OLLAMA_MODEL);
+  const [tavilyKey, setTavilyKey] = useState(initialTavilyKey ?? "");
+
+  const trimmedBaseUrl = baseUrl.trim();
+  const baseUrlValid = isValidOllamaBaseUrl(trimmedBaseUrl);
+  const canSave = kind === "gemini" ? apiKey.trim().length > 0 : baseUrlValid && model.trim().length > 0;
+
+  function save(): void {
+    const settings: ProviderSettings =
+      kind === "gemini"
+        ? { provider: "gemini", apiKey: apiKey.trim() }
+        : { provider: "ollama", baseUrl: trimmedBaseUrl, model: model.trim() };
+    const trimmedTavilyKey = tavilyKey.trim() || null;
+    void Promise.all([saveProviderSettings(settings), saveTavilyApiKey(trimmedTavilyKey)]).then(() =>
+      onSaved(settings, trimmedTavilyKey),
+    );
+  }
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.centered}>
-        <Text style={styles.title}>Enter your Gemini API key</Text>
+        <Text style={styles.title}>Model provider</Text>
+        <View style={styles.providerToggle}>
+          <Button title="Gemini" onPress={() => setKind("gemini")} color={kind === "gemini" ? undefined : "#999"} />
+          <Button title="Ollama" onPress={() => setKind("ollama")} color={kind === "ollama" ? undefined : "#999"} />
+        </View>
+
+        {kind === "gemini" ? (
+          <>
+            <Text style={styles.subtitle}>
+              Stored on-device only (Keychain/Keystore) — PRD §1.1: a user-supplied key, never a vendor-operated proxy. Get
+              one at Google AI Studio.
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={apiKey}
+              onChangeText={setApiKey}
+              placeholder="AIza..."
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.subtitle}>
+              Ollama has no iOS/Android build — point this at a machine already running it on your network (e.g. your
+              laptop's LAN IP), not "localhost".
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={baseUrl}
+              onChangeText={setBaseUrl}
+              placeholder="http://192.168.1.50:11434"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {trimmedBaseUrl.length > 0 && !baseUrlValid && (
+              <Text style={styles.validationError}>
+                Must be a full URL with "http://" or "https://" — e.g. http://192.168.1.50:11434, not just
+                192.168.1.50:11434 or "localhost".
+              </Text>
+            )}
+            <TextInput
+              style={styles.input}
+              value={model}
+              onChangeText={setModel}
+              placeholder={DEFAULT_OLLAMA_MODEL}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </>
+        )}
+
+        <Text style={styles.title}>Web search (optional)</Text>
         <Text style={styles.subtitle}>
-          Stored on-device only (Keychain/Keystore) — PRD §1.1: a user-supplied key, never a vendor-operated proxy.
+          Tavily API key — enables a web.search tool regardless of which model provider you picked above. Leave blank to
+          skip it. Get one at app.tavily.com.
         </Text>
         <TextInput
           style={styles.input}
-          value={value}
-          onChangeText={setValue}
-          placeholder="AIza..."
+          value={tavilyKey}
+          onChangeText={setTavilyKey}
+          placeholder="tvly-..."
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
         />
-        <Button
-          title="Save"
-          disabled={value.trim().length === 0}
-          onPress={() => {
-            const key = value.trim();
-            void saveApiKey(key).then(() => onSaved(key));
-          }}
-        />
+
+        <Button title="Save" disabled={!canSave} onPress={save} />
+        {onCancel && <Button title="Cancel" onPress={onCancel} />}
       </View>
     </SafeAreaView>
   );
 }
 
-function ChatScreen({ apiKey }: { readonly apiKey: string }): React.JSX.Element {
+function ChatScreen({
+  settings,
+  tavilyApiKey,
+  onRequestSettingsChange,
+}: {
+  readonly settings: ProviderSettings;
+  readonly tavilyApiKey: string | null;
+  readonly onRequestSettingsChange: () => void;
+}): React.JSX.Element {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = useState("");
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
@@ -108,10 +195,10 @@ function ChatScreen({ apiKey }: { readonly apiKey: string }): React.JSX.Element 
       setTranscript((prev) => [...prev, { kind: "error", text }]);
     };
 
-    const session = new AgentSession(apiKey, { onOutput, onEvent, requestInlineApproval, onError });
+    const session = new AgentSession(settings, tavilyApiKey ?? undefined, { onOutput, onEvent, requestInlineApproval, onError });
     sessionRef.current = session;
     session.start();
-  }, [apiKey]);
+  }, [settings, tavilyApiKey]);
 
   function send(): void {
     const text = draft.trim();
@@ -128,6 +215,10 @@ function ChatScreen({ apiKey }: { readonly apiKey: string }): React.JSX.Element 
 
   return (
     <SafeAreaView style={styles.root}>
+      <View style={styles.header}>
+        <Text style={styles.headerText}>{settings.provider === "gemini" ? "Gemini" : `Ollama (${settings.model})`}</Text>
+        <Button title="Change provider" onPress={onRequestSettingsChange} />
+      </View>
       <ScrollView style={styles.transcript} contentContainerStyle={styles.transcriptContent}>
         {transcript.map((entry, index) => {
           if (entry.kind === "event") {
@@ -176,16 +267,77 @@ function ChatScreen({ apiKey }: { readonly apiKey: string }): React.JSX.Element 
   );
 }
 
+type AppMode = "chat" | "settings" | "pendingRestart";
+
 export default function App(): React.JSX.Element {
-  const [apiKey, setApiKey] = useState<string | null | undefined>(undefined);
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent(): React.JSX.Element {
+  const [settings, setSettings] = useState<ProviderSettings | null | undefined>(undefined);
+  const [tavilyApiKey, setTavilyApiKey] = useState<string | null | undefined>(undefined);
+  // Once a ChatScreen/AgentSession exists, switching providers requires a
+  // real app restart (not a live hot-swap — AgentSession wraps one
+  // long-lived AgentLoop for the app's whole lifetime, with no
+  // teardown/reconnect path the way talond's gRPC server gets one per
+  // stream). "pendingRestart" is a dead-end on purpose: there is no path
+  // back to "chat" from here without actually reloading the app, which is
+  // what guarantees ChatScreen never mounts a second AgentSession
+  // alongside one still running from before the provider changed. The
+  // same restart requirement applies to a changed Tavily key, for the
+  // same reason — MobileToolRegistry's tool set is also fixed at
+  // AgentSession construction.
+  const [mode, setMode] = useState<AppMode>("chat");
 
   useEffect(() => {
-    void loadApiKey().then(setApiKey);
+    void loadProviderSettings().then(setSettings);
+    void loadTavilyApiKey().then(setTavilyApiKey);
   }, []);
 
-  if (apiKey === undefined) return <SafeAreaView style={styles.root} />;
-  if (apiKey === null) return <ApiKeyPrompt onSaved={setApiKey} />;
-  return <ChatScreen apiKey={apiKey} />;
+  if (settings === undefined || tavilyApiKey === undefined) return <SafeAreaView style={styles.root} />;
+
+  if (settings === null) {
+    return (
+      <SettingsScreen
+        initial={null}
+        initialTavilyKey={tavilyApiKey}
+        onSaved={(s, t) => {
+          setSettings(s);
+          setTavilyApiKey(t);
+        }}
+      />
+    );
+  }
+
+  if (mode === "settings") {
+    return (
+      <SettingsScreen
+        initial={settings}
+        initialTavilyKey={tavilyApiKey}
+        onSaved={() => setMode("pendingRestart")}
+        onCancel={() => setMode("chat")}
+      />
+    );
+  }
+
+  if (mode === "pendingRestart") {
+    return (
+      <SafeAreaView style={styles.root}>
+        <View style={styles.centered}>
+          <Text style={styles.title}>Settings saved</Text>
+          <Text style={styles.subtitle}>Close and reopen the app for the new provider to take effect.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <ChatScreen settings={settings} tavilyApiKey={tavilyApiKey} onRequestSettingsChange={() => setMode("settings")} />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -194,6 +346,17 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: "600" },
   subtitle: { fontSize: 13, opacity: 0.7 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, fontSize: 14 },
+  validationError: { fontSize: 12, color: "#c0392b" },
+  providerToggle: { flexDirection: "row", gap: 8 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  headerText: { fontSize: 12, opacity: 0.6 },
   transcript: { flex: 1 },
   transcriptContent: { padding: 12, gap: 8 },
   bubble: { maxWidth: "75%", padding: 10, borderRadius: 10 },
